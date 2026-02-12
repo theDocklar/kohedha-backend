@@ -1,0 +1,38 @@
+import express from "express";
+import cors from "cors";
+import dotenv from "dotenv";
+import cookieParser from "cookie-parser";
+import connectDB from "./config/db.js";
+import passport from "passport";
+import { setupPassport } from "./config/passport.js";
+
+// Routes
+import vendorRoutes from "./routes/vendorRoutes.js";
+import googleAuthRoutes from "./routes/googleAuthRoutes.js";
+
+const app = express();
+
+dotenv.config();
+const port = process.env.PORT || 5002;
+
+connectDB();
+
+setupPassport();
+
+// Middleware to parse json bodies
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    credentials: true,
+  }),
+);
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+app.use(passport.initialize());
+
+// Routes
+app.use("/api/vendor", vendorRoutes);
+app.use("/api/vendor/auth", googleAuthRoutes);
+
+app.listen(port, () => console.log(`Server running on port ${port}`));
