@@ -9,6 +9,7 @@ import { setupPassport } from "./config/passport.js";
 // Routes
 import vendorRoutes from "./routes/vendorRoutes.js";
 import googleAuthRoutes from "./routes/googleAuthRoutes.js";
+import tableRoutes from "./routes/tableRoutes.js";
 
 const app = express();
 
@@ -33,6 +34,7 @@ app.use(passport.initialize());
 
 // Routes
 app.use("/api/vendor", vendorRoutes);
+app.use("/api/vendor/tables", tableRoutes);
 app.use("/api/vendor/auth", googleAuthRoutes);
 
 app.listen(port, () => console.log(`Server running on port ${port}`));
