@@ -1,19 +1,20 @@
+import dotenv from "dotenv";
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
 import connectDB from "./config/db.js";
 import passport from "passport";
 import { setupPassport } from "./config/passport.js";
 
+dotenv.config(); 
+
 // Routes
 import vendorRoutes from "./routes/vendorRoutes.js";
 import googleAuthRoutes from "./routes/googleAuthRoutes.js";
 import tableRoutes from "./routes/tableRoutes.js";
+import menuRoutes from "./routes/menuRoutes.js";
 
 const app = express();
-
-dotenv.config();
 const port = process.env.PORT || 5002;
 
 connectDB();
@@ -36,5 +37,6 @@ app.use(passport.initialize());
 app.use("/api/vendor", vendorRoutes);
 app.use("/api/vendor/tables", tableRoutes);
 app.use("/api/vendor/auth", googleAuthRoutes);
+app.use("/api/vendor/menu", menuRoutes);
 
 app.listen(port, () => console.log(`Server running on port ${port}`));

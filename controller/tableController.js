@@ -67,7 +67,7 @@ export const getTables = async (req, res) => {
     const activeTables = tables.filter((table) => table.isActive).length;
     const totalCapacity = tables
       .filter((table) => table.isActive)
-      .reduce((sum, table) => sum + table.capacity, 0);
+      .reduce((sum, table) => sum + table.seatingCapacity, 0);
 
     res.status(200).json({
       success: true,
@@ -230,7 +230,7 @@ export const getTablesByType = async (req, res) => {
       vendorId,
       tableType: type,
       isActive: true,
-    }).sort({ capacity: 1 });
+    }).sort({ seatingCapacity: 1 });
 
     res.status(200).json({
       success: true,
