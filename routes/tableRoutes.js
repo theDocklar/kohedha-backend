@@ -5,7 +5,7 @@ import {
   createTable,
   updateTable,
   deleteTable,
-  getTablesByType,
+  updateTablePositions,
 } from "../controller/tableController.js";
 import { protect } from "../middleware/auth.js";
 
@@ -19,7 +19,6 @@ router.get("/:id", getTableById);
 router.post("/new-table", createTable);
 router.put("/update-table/:id", updateTable);
 router.delete("/delete-table/:id", deleteTable);
-
-router.get("/:type", getTablesByType); // Get by type
+router.put("/update-positions", updateTablePositions);
 
 export default router;
