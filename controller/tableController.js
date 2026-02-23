@@ -1,11 +1,12 @@
 import Table from "../models/tableModel.js";
 import Vendor from "../models/vendorModel.js";
+import Section from "../models/sectionModel.js";
 
 // Table creation by vendor
 export const createTable = async (req, res) => {
   try {
     const vendorId = req.vendor.id;
-    const { tableNumber, seatingCapacity, tableType } = req.body;
+    const { tableNumber, seatingCapacity, sectionId, shape } = req.body;
 
     // Basic validation
     if (!tableNumber || !seatingCapacity) {
@@ -13,6 +14,17 @@ export const createTable = async (req, res) => {
         success: false,
         message: "Table number & capacity required.",
       });
+    }
+
+    // Validate sectionId if provided
+    if (sectionId) {
+      const section = await Section.findOne({ _id: sectionId, vendorId });
+      if (!section) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid section ID or section not found",
+        });
+      }
     }
 
     const existingTable = await Table.findOne({ vendorId, tableNumber });
@@ -27,7 +39,8 @@ export const createTable = async (req, res) => {
       vendorId,
       tableNumber,
       seatingCapacity: seatingCapacity || 1,
-      tableType: tableType || "standard",
+      sectionId: sectionId || undefined,
+      shape: shape || "square",
       isActive: true,
     });
 
@@ -59,15 +72,24 @@ export const createTable = async (req, res) => {
 export const getTables = async (req, res) => {
   try {
     const vendorId = req.vendor.id;
+    const { sectionId } = req.query;
 
-    const tables = await Table.find({ vendorId }).sort({ createdAt: -1 });
+    // Build filter
+    let filter = { vendorId };
+    if (sectionId) {
+      filter.sectionId = sectionId;
+    }
+
+    const tables = await Table.find(filter)
+      .populate("sectionId", "sectionName sectionType")
+      .sort({ createdAt: -1 });
 
     // Get counts
     const totalTables = tables.length;
     const activeTables = tables.filter((table) => table.isActive).length;
     const totalCapacity = tables
       .filter((table) => table.isActive)
-      .reduce((sum, table) => sum + table.capacity, 0);
+      .reduce((sum, table) => sum + table.seatingCapacity, 0);
 
     res.status(200).json({
       success: true,
@@ -126,7 +148,15 @@ export const updateTable = async (req, res) => {
   try {
     const { id } = req.params;
     const vendorId = req.vendor.id;
-    const { tableNumber, seatingCapacity, tableType, isActive } = req.body;
+    const {
+      tableNumber,
+      seatingCapacity,
+      isActive,
+      sectionId,
+      shape,
+      positionX,
+      positionY,
+    } = req.body;
 
     const table = await Table.findOne({ _id: id, vendorId });
     if (!table) {
@@ -134,6 +164,19 @@ export const updateTable = async (req, res) => {
         success: false,
         message: "Table not found",
       });
+    }
+
+    // Validate sectionId if provided
+    if (sectionId !== undefined) {
+      if (sectionId) {
+        const section = await Section.findOne({ _id: sectionId, vendorId });
+        if (!section) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid section ID or section not found",
+          });
+        }
+      }
     }
 
     // Check if new table name conflicts with another table
@@ -155,8 +198,11 @@ export const updateTable = async (req, res) => {
     // Update fields
     if (tableNumber !== undefined) table.tableNumber = tableNumber;
     if (seatingCapacity !== undefined) table.seatingCapacity = seatingCapacity;
-    if (tableType !== undefined) table.tableType = tableType;
     if (isActive !== undefined) table.isActive = isActive;
+    if (sectionId !== undefined) table.sectionId = sectionId || null;
+    if (shape !== undefined) table.shape = shape;
+    if (positionX !== undefined) table.positionX = positionX;
+    if (positionY !== undefined) table.positionY = positionY;
 
     await table.save();
 
@@ -190,20 +236,6 @@ export const deleteTable = async (req, res) => {
       });
     }
 
-    // // Check if table has upcoming reservations before deleting
-    // const hasReservations = await Reservation.findOne({
-    //   tableId: id,
-    //   reservationDate: { $gte: new Date() },
-    //   status: { $in: ["pending", "confirmed"] }
-    // });
-
-    // if (hasReservations) {
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: "Cannot delete table with upcoming reservations"
-    //   });
-    // }
-
     await table.deleteOne();
 
     res.status(200).json({
@@ -220,28 +252,50 @@ export const deleteTable = async (req, res) => {
   }
 };
 
-// Get tables by type
-export const getTablesByType = async (req, res) => {
+// Update table positions in bulk
+export const updateTablePositions = async (req, res) => {
   try {
-    const { type } = req.params;
     const vendorId = req.vendor.id;
+    const { positions } = req.body;
 
-    const tables = await Table.find({
-      vendorId,
-      tableType: type,
-      isActive: true,
-    }).sort({ capacity: 1 });
+    // positions should be an array of { id, positionX, positionY }
+    if (!Array.isArray(positions)) {
+      return res.status(400).json({
+        success: false,
+        message: "Positions must be an array",
+      });
+    }
+
+    // Update each table
+    const updatePromises = positions.map(
+      async ({ id, positionX, positionY }) => {
+        const table = await Table.findOne({ _id: id, vendorId });
+        if (table) {
+          table.positionX = positionX;
+          table.positionY = positionY;
+          await table.save();
+          return table;
+        }
+        return null;
+      },
+    );
+
+    const updatedTables = await Promise.all(updatePromises);
+    const successCount = updatedTables.filter((t) => t !== null).length;
 
     res.status(200).json({
       success: true,
-      count: tables.length,
-      data: tables,
+      message: `Updated ${successCount} table positions`,
+      data: {
+        updated: successCount,
+        total: positions.length,
+      },
     });
   } catch (error) {
-    console.error("Get tables by type error:", error);
+    console.error("Update positions error:", error);
     res.status(500).json({
       success: false,
-      message: "Failed to fetch tables",
+      message: "Failed to update table positions",
       error: error.message,
     });
   }

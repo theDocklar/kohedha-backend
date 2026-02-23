@@ -1,0 +1,27 @@
+import express from "express";
+import upload from "../middleware/upload.js";
+import {
+  uploadMenuCSV,
+  analyzeCSV,
+  getMenuItems,
+  updateMenuItem,
+  deleteMenuItem,
+  uploadMenuPDF,
+} from "../controller/menuController.js";
+import { protect } from "../middleware/auth.js";
+
+const router = express.Router();
+
+router.use(protect);
+
+// Route for CSV upload
+router.post("/upload-csv", upload.single("file"), uploadMenuCSV);
+router.post("/analyze-csv", upload.single("file"), analyzeCSV);
+router.get("/", getMenuItems);
+router.put("/:id", updateMenuItem);
+router.delete("/:id", deleteMenuItem);
+
+// Route for PDF upload
+router.post("/upload-pdf", upload.single("file"), uploadMenuPDF);
+
+export default router;
