@@ -14,6 +14,7 @@ import googleAuthRoutes from "./routes/googleAuthRoutes.js";
 import tableRoutes from "./routes/tableRoutes.js";
 import menuRoutes from "./routes/menuRoutes.js";
 import sectionRoutes from "./routes/sectionRoutes.js";
+import bookingSlotRoutes from "./routes/bookingSlotRoutes.js";
 
 const app = express();
 const port = process.env.PORT || 5002;
@@ -39,5 +40,6 @@ app.use("/api/vendor/tables", tableRoutes);
 app.use("/api/vendor/auth", googleAuthRoutes);
 app.use("/api/vendor/menu", menuRoutes);
 app.use("/api/vendor/sections", sectionRoutes);
+app.use("/api/vendor/booking-slot", bookingSlotRoutes);
 
 app.listen(port, () => console.log(`Server running on port ${port}`));

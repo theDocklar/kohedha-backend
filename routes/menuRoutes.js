@@ -7,6 +7,7 @@ import {
   updateMenuItem,
   deleteMenuItem,
   uploadMenuPDF,
+  saveEditedPDFMenuItems,
 } from "../controller/menuController.js";
 import { protect } from "../middleware/auth.js";
 
@@ -21,7 +22,8 @@ router.get("/", getMenuItems);
 router.put("/:id", updateMenuItem);
 router.delete("/:id", deleteMenuItem);
 
-// Route for PDF upload
+// Routes for PDF upload
 router.post("/upload-pdf", upload.single("file"), uploadMenuPDF);
+router.post("/save-pdf", saveEditedPDFMenuItems);
 
 export default router;
