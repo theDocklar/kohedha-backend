@@ -142,3 +142,227 @@ export const getBookingSlotById = async (req, res) => {
     });
   }
 };
+
+// Get all booking slots for vendor
+export const getBookingSlots = async (req, res) => {
+  try {
+    const vendorId = req.vendor.id;
+    const { isActive, date, sectionId } = req.query;
+
+    let filter = { vendorId };
+
+    // Filter by active status
+    if (isActive !== undefined) {
+      filter.isActive = isActive === "true";
+    }
+
+    // Filter by date
+    if (date) {
+      const searchDate = new Date(date);
+      const startOfDay = new Date(searchDate.setHours(0, 0, 0, 0));
+      const endOfDay = new Date(searchDate.setHours(23, 59, 59, 999));
+      filter.date = { $gte: startOfDay, $lte: endOfDay };
+    }
+
+    // Filter by section
+    if (sectionId) {
+      filter.sectionId = sectionId;
+    }
+
+    const bookingSlots = await BookingSlot.find(filter)
+      .populate("sectionId", "sectionName sectionType")
+      .sort({ date: -1, startTime: -1 });
+
+    // Add public links to each slot
+    const slotsWithLinks = bookingSlots.map((slot) => ({
+      ...slot.toObject(),
+      publicLink: slot.getPublicLink(),
+    }));
+
+    res.status(200).json({
+      success: true,
+      count: slotsWithLinks.length,
+      data: slotsWithLinks,
+    });
+  } catch (error) {
+    console.error("Get booking slots error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+// Update booking slot
+export const updateBookingSlot = async (req, res) => {
+  try {
+    const vendorId = req.vendor.id;
+    const { id } = req.params;
+    const updates = req.body;
+
+    const bookingSlot = await BookingSlot.findOne({ _id: id, vendorId });
+
+    if (!bookingSlot) {
+      console.error("[Booking Error] Slot not found");
+      return res.status(404).json({
+        success: false,
+        message: "Booking slot not found",
+      });
+    }
+
+    // Prevent updating if there are existing bookings
+    if (bookingSlot.totalBookings > 0) {
+      // You can allow some fields to be updated even with bookings
+      const allowedUpdates = ["description", "isActive", "maxBookings"];
+      const updateKeys = Object.keys(updates);
+      const hasRestrictedUpdates = updateKeys.some(
+        (key) => !allowedUpdates.includes(key),
+      );
+
+      if (hasRestrictedUpdates) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Cannot update slot details (date, time, section) when bookings exist. You can only update description, status, or max bookings.",
+        });
+      }
+    }
+
+    // If updating section, verify it exists
+    if (updates.sectionId) {
+      const section = await Section.findOne({
+        _id: updates.sectionId,
+        vendorId,
+        isActive: true,
+      });
+
+      if (!section) {
+        console.log("[ Booking Error ] Section not found or inactive");
+        return res.status(404).json({
+          success: false,
+          message: "Section not found or inactive",
+        });
+      }
+    }
+
+    // Validate time if updating
+    const newStartTime = updates.startTime || bookingSlot.startTime;
+    const newEndTime = updates.endTime || bookingSlot.endTime;
+
+    if (newStartTime >= newEndTime) {
+      return res.status(400).json({
+        success: false,
+        message: "End time must be after start time",
+      });
+    }
+
+    // Don't allow updating these
+    Object.keys(updates).forEach((key) => {
+      if (key !== "publicToken" && key !== "totalBookings") {
+        bookingSlot[key] = updates[key];
+      }
+    });
+
+    // Update
+    await bookingSlot.save();
+
+    const updatedSlot = await BookingSlot.findById(id).populate(
+      "sectionId",
+      "sectionName sectionType",
+    );
+
+    console.log(`Booking updated: ${bookingSlot._id}`);
+    res.status(200).json({
+      success: true,
+      message: "Booking slot updated successfully",
+      data: {
+        ...updatedSlot.toObject(),
+        publicLink: updatedSlot.getPublicLink(),
+      },
+    });
+  } catch (error) {
+    console.error("Update booking slot error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+// Chanege booking slot status
+export const toggleBookingSlotStatus = async (req, res) => {
+  try {
+    const vendorId = req.vendor.id;
+    const { id } = req.params;
+
+    const bookingSlot = await BookingSlot.findOne({ _id: id, vendorId });
+
+    if (!bookingSlot) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking slot not found",
+      });
+    }
+
+    bookingSlot.isActive = !bookingSlot.isActive;
+    await bookingSlot.save();
+
+    console.log(`Booking slot: ${bookingSlot.slotName} status updated`);
+    res.status(200).json({
+      success: true,
+      message: `Booking slot ${bookingSlot.isActive ? "activated" : "deactivated"} successfully`,
+      data: {
+        isActive: bookingSlot.isActive,
+      },
+    });
+  } catch (error) {
+    console.error("Toggle booking slot status error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+// Delete booking slot
+export const deleteBookingSlot = async (req, res) => {
+  try {
+    const vendorId = req.vendor.id;
+    const { id } = req.params;
+
+    const bookingSlot = await BookingSlot.findOne({ _id: id, vendorId });
+
+    if (!bookingSlot) {
+      console.log("Booking slot not found");
+      return res.status(404).json({
+        success: false,
+        message: "Booking slot not found",
+      });
+    }
+
+    // Check if there are existing bookings
+    if (bookingSlot.totalBookings > 0) {
+      console.error(
+        `Cannot delete booking slot with ${bookingSlot.totalBookings} existing bookings.`,
+      );
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete booking slot with ${bookingSlot.totalBookings} existing bookings. Please cancel bookings first or deactivate the slot.`,
+      });
+    }
+
+    await BookingSlot.findByIdAndDelete(id);
+
+    console.log("Booking slot deleted successfully");
+    res.status(200).json({
+      success: true,
+      message: "Booking slot deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete booking slot error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
