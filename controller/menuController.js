@@ -485,3 +485,86 @@ export const uploadMenuPDF = async (req, res) => {
     });
   }
 };
+
+// Save scanned PDF menu items
+export const saveEditedPDFMenuItems = async (req, res) => {
+  try {
+    const { items } = req.body;
+    const vendorId = req.vendor.id;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No items provided to save",
+      });
+    }
+
+    // Validate each item
+    const validItems = [];
+    const errors = [];
+
+    items.forEach((item, index) => {
+      const validation = validateMenuItem(item, index + 1);
+
+      if (validation.isValid) {
+        validItems.push({
+          ...validation.sanitizedData,
+          vendorId,
+        });
+      } else {
+        errors.push({
+          row: index + 1,
+          item: item.name,
+          errors: validation.errors,
+        });
+      }
+    });
+
+    if (validItems.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid items to save",
+        errors,
+      });
+    }
+
+    // Save to database
+    try {
+      const savedItems = await Menu.insertMany(validItems, { ordered: false });
+
+      return res.status(201).json({
+        success: true,
+        message: `Successfully saved ${savedItems.length} menu items`,
+        data: {
+          savedCount: savedItems.length,
+          totalSubmitted: items.length,
+          skipped: errors.length,
+          errors: errors.length > 0 ? errors : undefined,
+        },
+      });
+    } catch (dbError) {
+      if (dbError.writeErrors) {
+        const successCount = validItems.length - dbError.writeErrors.length;
+        return res.status(207).json({
+          success: true,
+          message: `Partially saved: ${successCount} of ${validItems.length} items`,
+          data: {
+            savedCount: successCount,
+            errors: dbError.writeErrors.map((err) => ({
+              item: validItems[err.index].name,
+              error: err.errmsg,
+            })),
+          },
+        });
+      }
+      throw dbError;
+    }
+  } catch (error) {
+    console.error("Save edited items error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while saving items",
+      error: error.message,
+    });
+  }
+};
