@@ -7,6 +7,7 @@ import {
   updateBookingSlot,
   toggleBookingSlotStatus,
   deleteBookingSlot,
+  getBookingSlotReservations,
 } from "../controller/bookingSlotController.js";
 
 const router = express.Router();
@@ -20,5 +21,6 @@ router.get("/", getBookingSlots);
 router.put("/:id", updateBookingSlot);
 router.delete("/:id", deleteBookingSlot);
 router.patch("/:id/status", toggleBookingSlotStatus);
+router.get("/:id/reservation", getBookingSlotReservations);
 
 export default router;

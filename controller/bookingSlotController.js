@@ -1,6 +1,7 @@
 import BookingSlot from "../models/bookingSlotModel.js";
 import Section from "../models/sectionModel.js";
 import Table from "../models/tableModel.js";
+import Reservation from "../models/reservationModel.js";
 
 // Create booking
 export const createBookingSlot = async (req, res) => {
@@ -360,6 +361,43 @@ export const deleteBookingSlot = async (req, res) => {
     });
   } catch (error) {
     console.error("Delete booking slot error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+// Get reservations for a booking slot
+export const getBookingSlotReservations = async (req, res) => {
+  try {
+    const vendorId = req.vendor.id;
+    const { id } = req.params;
+
+    const bookingSlot = await BookingSlot.findOne({ _id: id, vendorId });
+
+    if (!bookingSlot) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking slot not found",
+      });
+    }
+
+    // Get all reservations for this slot
+    const reservations = await Reservation.find({
+      bookingSlotId: id,
+    })
+      .populate("tableId", "tableNumber seatingCapacity")
+      .populate("sectionId", "sectionName")
+      .sort({ startTime: 1 });
+
+    res.status(200).json({
+      success: true,
+      count: reservations.length,
+      data: reservations,
+    });
+  } catch (error) {
+    console.error("Get booking slot reservations error:", error);
     res.status(500).json({
       success: false,
       message: "Internal server error",
