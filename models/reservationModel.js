@@ -141,8 +141,6 @@ reservationSchema.methods.getConfirmationLink = function () {
 
 // Indexes
 reservationSchema.index({ vendorId: 1, reservationDate: 1, status: 1 });
-reservationSchema.index({ bookingSlotId: 1 });
-reservationSchema.index({ confirmationToken: 1 });
 
 const Reservation = mongoose.model("Reservation", reservationSchema);
 export default Reservation;

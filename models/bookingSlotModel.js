@@ -77,7 +77,7 @@ const bookingSlotSchema = mongoose.Schema(
   { timestamps: true },
 );
 
-// Generate unique public token 
+// Generate unique public token
 bookingSlotSchema.pre("save", function () {
   if (this.isNew && !this.publicToken) {
     this.publicToken = crypto.randomBytes(16).toString("hex");
@@ -92,7 +92,6 @@ bookingSlotSchema.methods.getPublicLink = function () {
 
 // Indexes for performance
 bookingSlotSchema.index({ vendorId: 1, date: 1, sectionId: 1 });
-bookingSlotSchema.index({ publicToken: 1 });
 bookingSlotSchema.index({ vendorId: 1, isActive: 1 });
 
 const BookingSlot = mongoose.model("BookingSlot", bookingSlotSchema);
