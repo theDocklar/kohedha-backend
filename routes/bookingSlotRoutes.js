@@ -8,19 +8,27 @@ import {
   toggleBookingSlotStatus,
   deleteBookingSlot,
   getBookingSlotReservations,
+  createRecurringBookingSlot,
+  deleteRecurringSeries,
+  confirmReservation,
+  cancelReservation
 } from "../controller/bookingSlotController.js";
 
 const router = express.Router();
 
-router.use(protect);
+// Recurring slot routes
+router.post("/recurring", protect, createRecurringBookingSlot);
+router.delete("/recurring/:groupId", protect, deleteRecurringSeries);
 
-// Routes
-router.post("/create", createBookingSlot);
-router.get("/:id", getBookingSlotById);
-router.get("/", getBookingSlots);
-router.put("/:id", updateBookingSlot);
-router.delete("/:id", deleteBookingSlot);
-router.patch("/:id/status", toggleBookingSlotStatus);
-router.get("/:id/reservation", getBookingSlotReservations);
+// Normal slot routes
+router.post("/create", protect, createBookingSlot);
+router.get("/:id", protect, getBookingSlotById);
+router.get("/", protect, getBookingSlots);
+router.put("/:id", protect, updateBookingSlot);
+router.delete("/:id", protect, deleteBookingSlot);
+router.patch("/:id/status", protect, toggleBookingSlotStatus);
+router.get("/:id/reservation", protect, getBookingSlotReservations);
+router.patch("/:slotId/reservation/confirm/:reservationId", protect, confirmReservation);
+router.patch("/:slotId/reservation/cancel/:reservationId", protect, cancelReservation);
 
 export default router;
