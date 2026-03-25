@@ -83,7 +83,7 @@ const reservationSchema = mongoose.Schema(
     // Status Management
     status: {
       type: String,
-      enum: ["pending", "confirmed", "cancelled", "completed", "no-show"],
+      enum: ["pending", "confirmed", "cancelled"],
       default: "pending",
       index: true,
     },
@@ -100,7 +100,7 @@ const reservationSchema = mongoose.Schema(
 
     cancelledBy: {
       type: String,
-      enum: ["customer", "vendor", "system"],
+      enum: ["customer", "vendor"],
     },
 
     // Confirmation

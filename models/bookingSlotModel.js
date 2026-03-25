@@ -73,6 +73,24 @@ const bookingSlotSchema = mongoose.Schema(
       type: Number,
       default: null,
     },
+
+    // Recurrence fields
+    recurrenceGroupId: {
+      // Ties all occurrences of a recurring series together
+      type: String,
+      default: null,
+      index: true,
+    },
+
+    isRecurring: {
+      type: Boolean,
+      default: false,
+    },
+
+    recurrenceRule: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
   },
   { timestamps: true },
 );
@@ -90,9 +108,10 @@ bookingSlotSchema.methods.getPublicLink = function () {
   return `${frontendUrl}/book/${this.publicToken}`;
 };
 
-// Indexes for performance
+// Indexes
 bookingSlotSchema.index({ vendorId: 1, date: 1, sectionId: 1 });
 bookingSlotSchema.index({ vendorId: 1, isActive: 1 });
+bookingSlotSchema.index({ recurrenceGroupId: 1, date: 1 });
 
 const BookingSlot = mongoose.model("BookingSlot", bookingSlotSchema);
 export default BookingSlot;
