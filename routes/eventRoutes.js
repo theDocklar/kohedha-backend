@@ -5,7 +5,6 @@ import {
   getEventById,
   updateEvent,
   deleteEvent,
-  updateEventRegistrations,
 } from "../controller/eventController.js";
 import { protect } from "../middleware/auth.js";
 
@@ -18,6 +17,5 @@ router.get("/", getVendorEvents);
 router.get("/:id", getEventById);
 router.put("/:id", updateEvent);
 router.delete("/:id", deleteEvent);
-router.put("/:id/registrations", updateEventRegistrations);
 
 export default router;
