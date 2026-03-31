@@ -8,17 +8,16 @@ export const createEvent = async (req, res) => {
       description,
       category,
       eventDate,
+      eventEndDate,
       eventTime,
-      duration,
       maxCapacity,
       location,
       ticketPrice,
       images,
-      isPaid,
+      isFree,
       isPublished,
       tags,
       contactPerson,
-      specialRequirements,
     } = req.body;
 
     // Validation
@@ -27,7 +26,6 @@ export const createEvent = async (req, res) => {
       !description ||
       !eventDate ||
       !eventTime ||
-      !duration ||
       !maxCapacity ||
       !location
     ) {
@@ -44,17 +42,16 @@ export const createEvent = async (req, res) => {
       description,
       category: category || "other",
       eventDate,
+      eventEndDate,
       eventTime,
-      duration,
       maxCapacity,
       location,
       ticketPrice: ticketPrice || 0,
       images: images || [],
-      isPaid: ticketPrice > 0 ? true : false,
+      isFree: ticketPrice > 0 ? false : true,
       isPublished: isPublished || false,
       tags: tags || [],
       contactPerson: contactPerson || {},
-      specialRequirements: specialRequirements || "",
       status: "upcoming",
     });
 
@@ -92,8 +89,6 @@ export const getVendorEvents = async (req, res) => {
 
     if (sortBy === "oldest") {
       sort = { eventDate: 1 };
-    } else if (sortBy === "popular") {
-      sort = { currentRegistrations: -1 };
     }
 
     const events = await Event.find(filter).sort(sort);
@@ -176,38 +171,37 @@ export const updateEvent = async (req, res) => {
       description,
       category,
       eventDate,
+      eventEndDate,
       eventTime,
-      duration,
       maxCapacity,
       location,
       ticketPrice,
       images,
-      isPaid,
+      isFree,
       isPublished,
       status,
       tags,
       contactPerson,
-      specialRequirements,
     } = req.body;
 
     if (eventName) event.eventName = eventName;
     if (description) event.description = description;
     if (category) event.category = category;
     if (eventDate) event.eventDate = eventDate;
+    if (eventEndDate) event.eventEndDate = eventEndDate;
     if (eventTime) event.eventTime = eventTime;
-    if (duration) event.duration = duration;
     if (maxCapacity) event.maxCapacity = maxCapacity;
     if (location) event.location = location;
     if (ticketPrice !== undefined) {
       event.ticketPrice = ticketPrice;
-      event.isPaid = ticketPrice > 0 ? true : false;
+      event.isFree = ticketPrice > 0 ? false : true;
     }
     if (images) event.images = images;
+    if (isFree !== undefined) event.isFree = isFree;
     if (isPublished !== undefined) event.isPublished = isPublished;
     if (status) event.status = status;
     if (tags) event.tags = tags;
     if (contactPerson) event.contactPerson = contactPerson;
-    if (specialRequirements) event.specialRequirements = specialRequirements;
 
     const updatedEvent = await event.save();
 
@@ -254,59 +248,6 @@ export const deleteEvent = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message || "Error deleting event",
-    });
-  }
-};
-
-// Update event registration count
-export const updateEventRegistrations = async (req, res) => {
-  try {
-    const { currentRegistrations } = req.body;
-
-    let event = await Event.findById(req.params.id);
-
-    if (!event) {
-      return res.status(404).json({
-        success: false,
-        message: "Event not found",
-      });
-    }
-
-    // Check ownership
-    if (event.vendorId.toString() !== req.vendor.id) {
-      return res.status(403).json({
-        success: false,
-        message: "Not authorized to update this event",
-      });
-    }
-
-    if (currentRegistrations !== undefined) {
-      if (currentRegistrations < 0) {
-        return res.status(400).json({
-          success: false,
-          message: "Registrations cannot be negative",
-        });
-      }
-      if (currentRegistrations > event.maxCapacity) {
-        return res.status(400).json({
-          success: false,
-          message: "Registrations cannot exceed maximum capacity",
-        });
-      }
-      event.currentRegistrations = currentRegistrations;
-    }
-
-    const updatedEvent = await event.save();
-
-    res.status(200).json({
-      success: true,
-      message: "Event registrations updated successfully",
-      data: updatedEvent,
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message || "Error updating registrations",
     });
   }
 };

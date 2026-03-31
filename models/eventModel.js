@@ -42,27 +42,19 @@ const eventSchema = mongoose.Schema(
       required: [true, "Please provide an event date"],
     },
 
+    eventEndDate: {
+      type: Date,
+    },
+
     eventTime: {
       type: String, // Format: "HH:mm" (24-hour format)
       required: [true, "Please provide event start time"],
-    },
-
-    duration: {
-      type: Number, // in minutes
-      required: [true, "Please provide event duration"],
-      min: 30,
     },
 
     maxCapacity: {
       type: Number,
       required: [true, "Please provide maximum capacity"],
       min: 1,
-    },
-
-    currentRegistrations: {
-      type: Number,
-      default: 0,
-      min: 0,
     },
 
     location: {
@@ -82,7 +74,6 @@ const eventSchema = mongoose.Schema(
       {
         url: {
           type: String,
-          required: true,
         },
         uploadedAt: {
           type: Date,
@@ -91,9 +82,9 @@ const eventSchema = mongoose.Schema(
       },
     ],
 
-    isPaid: {
+    isFree: {
       type: Boolean,
-      default: false,
+      default: true,
     },
 
     isPublished: {
@@ -103,7 +94,7 @@ const eventSchema = mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["upcoming", "ongoing", "completed", "cancelled"],
+      enum: ["upcoming", "ongoing", "completed", "cancelled", "draft"],
       default: "upcoming",
     },
 
@@ -118,11 +109,6 @@ const eventSchema = mongoose.Schema(
       name: String,
       phone: String,
       email: String,
-    },
-
-    specialRequirements: {
-      type: String,
-      trim: true,
     },
   },
   { timestamps: true },
