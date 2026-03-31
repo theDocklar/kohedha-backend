@@ -5,8 +5,13 @@ import cookieParser from "cookie-parser";
 import connectDB from "./config/db.js";
 import passport from "passport";
 import { setupPassport } from "./config/passport.js";
+import path from "path";
+import { fileURLToPath } from "url";
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Routes
 import vendorRoutes from "./routes/vendorRoutes.js";
@@ -36,6 +41,9 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(passport.initialize());
+
+// Serve uploaded images statically
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // Routes
 app.use("/api/vendor", vendorRoutes);

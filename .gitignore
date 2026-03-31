@@ -35,3 +35,7 @@ coverage/
 *.local
 *.cache
 *.swp
+
+# Uploaded files (local storage)
+uploads/
+!uploads/.gitkeep

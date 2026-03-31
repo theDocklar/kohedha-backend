@@ -36,6 +36,20 @@ const menuItemSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    imageUrl: {
+      type: String,
+      default: null,
+    },
+    thumbnailUrl: {
+      type: String,
+      default: null,
+    },
+    imageMetadata: {
+      width: Number,
+      height: Number,
+      size: Number, // bytes
+      format: String,
+    },
   },
   {
     timestamps: true,

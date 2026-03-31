@@ -9,7 +9,7 @@ import {
   transformRow,
   getSuggestedMappings,
 } from "../utils/csvMapper.js";
-import { extractMenuFromPDF } from "../utils/pdfMenuExtractor.js";
+import { extractMenuFromPDF, extractMenuWithImages } from "../utils/pdfMenuExtractor.js";
 
 // Upload menu items via CSV with intelligent column mapping
 export const uploadMenuCSV = async (req, res) => {
@@ -568,3 +568,191 @@ export const saveEditedPDFMenuItems = async (req, res) => {
     });
   }
 };
+
+/**
+ * Upload menu PDF with image extraction using Gemini Vision
+ * Extracts food items, crops individual images, and saves locally
+ */
+export const uploadMenuPDFWithImages = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No file uploaded",
+      });
+    }
+
+    if (req.file.mimetype !== "application/pdf") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid file type. Only PDF files are accepted.",
+      });
+    }
+
+    const vendorId = req.vendor.id;
+    const isPreviewMode = req.query.preview !== "false"; // Default to preview
+
+    console.log(`Starting PDF extraction with images for vendor: ${vendorId}`);
+    console.log(`File size: ${(req.file.size / 1024 / 1024).toFixed(2)} MB`);
+
+    // Extract menu items with images using Gemini Vision
+    let extractionResult;
+    try {
+      extractionResult = await extractMenuWithImages(req.file.buffer, vendorId);
+    } catch (error) {
+      console.error("Extraction error:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to extract menu from PDF with images",
+        error: error.message,
+        hint: "Ensure the PDF contains food images or clear text. Check server logs for details.",
+      });
+    }
+
+    const { items, totalItems, totalPages } = extractionResult;
+
+    console.log(`Extracted ${totalItems} items from ${totalPages} pages`);
+
+    if (totalItems === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No menu items could be extracted from the PDF",
+        hint: "Please check if the PDF contains a valid menu with food images or readable text.",
+      });
+    }
+
+    // Validate extracted items
+    const validationResults = {
+      totalItems,
+      validItems: 0,
+      invalidItems: 0,
+      errors: [],
+    };
+
+    const validItems = [];
+
+    items.forEach((item, index) => {
+      // Basic validation (price, name, category required)
+      const validation = {
+        isValid: true,
+        errors: [],
+      };
+
+      if (!item.name || item.name.trim() === "") {
+        validation.isValid = false;
+        validation.errors.push("Item name is required");
+      }
+
+      if (!item.category || item.category.trim() === "") {
+        validation.isValid = false;
+        validation.errors.push("Category is required");
+      }
+
+      if (typeof item.price !== "number" || item.price < 0) {
+        validation.isValid = false;
+        validation.errors.push("Valid price is required");
+      }
+
+      if (validation.isValid) {
+        validItems.push({
+          vendorId,
+          category: item.category,
+          name: item.name,
+          description: item.description || "",
+          price: item.price,
+          currency: item.currency || "LKR",
+          imageUrl: item.imageUrl,
+          thumbnailUrl: item.thumbnailUrl,
+          imageMetadata: item.imageMetadata,
+          is_available: true,
+        });
+        validationResults.validItems++;
+      } else {
+        validationResults.invalidItems++;
+        validationResults.errors.push({
+          row: index + 1,
+          item: item.name || "Unknown",
+          page: item.pageNumber,
+          errors: validation.errors,
+        });
+      }
+    });
+
+    // Return extracted data for user review (Preview Mode)
+    if (isPreviewMode) {
+      return res.status(200).json({
+        success: true,
+        message: "PDF menu with images extracted successfully. Review the items below.",
+        preview: true,
+        data: {
+          filename: req.file.originalname,
+          pages: totalPages,
+          totalExtracted: totalItems,
+          validItems: validationResults.validItems,
+          invalidItems: validationResults.invalidItems,
+          items: validItems, // Send valid items with image URLs for preview
+          errors: validationResults.errors,
+        },
+        hint: "Review the items and images, then submit to save to database.",
+      });
+    }
+
+    // SAVE MODE: Persist to database
+    if (validItems.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid menu items to save",
+        errors: validationResults.errors,
+      });
+    }
+
+    try {
+      const savedItems = await Menu.insertMany(validItems, { ordered: false });
+
+      return res.status(201).json({
+        success: true,
+        message: `Successfully saved ${savedItems.length} menu items with images`,
+        preview: false,
+        data: {
+          savedCount: savedItems.length,
+          totalExtracted: totalItems,
+          skipped: validationResults.invalidItems,
+          itemsWithImages: validItems.filter((item) => item.imageUrl).length,
+          errors:
+            validationResults.errors.length > 0
+              ? validationResults.errors
+              : undefined,
+        },
+      });
+    } catch (dbError) {
+      console.error("Database error:", dbError);
+
+      // Handle partial success
+      if (dbError.writeErrors) {
+        const successCount = validItems.length - dbError.writeErrors.length;
+        return res.status(207).json({
+          // 207 Multi-Status
+          success: true,
+          message: `Partially saved: ${successCount} of ${validItems.length} items`,
+          data: {
+            savedCount: successCount,
+            totalExtracted: totalItems,
+            errors: dbError.writeErrors.map((err) => ({
+              item: validItems[err.index]?.name || "Unknown",
+              error: err.errmsg,
+            })),
+          },
+        });
+      }
+      throw dbError;
+    }
+  } catch (error) {
+    console.error("PDF with images upload error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error during PDF processing",
+      error: error.message,
+    });
+  }
+};
+
