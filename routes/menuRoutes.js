@@ -25,7 +25,11 @@ router.delete("/:id", deleteMenuItem);
 
 // Routes for PDF upload
 router.post("/upload-pdf", upload.single("file"), uploadMenuPDF);
-router.post("/upload-pdf-with-images", upload.single("file"), uploadMenuPDFWithImages);
+router.post(
+  "/upload-pdf-with-images",
+  upload.single("file"),
+  uploadMenuPDFWithImages,
+);
 router.post("/save-pdf", saveEditedPDFMenuItems);
 
 export default router;

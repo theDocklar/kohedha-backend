@@ -34,82 +34,92 @@ export const ensureUploadDirectories = () => {
  */
 export const convertPdfToImages = async (pdfBuffer) => {
   try {
-    console.log('[PDF Conversion] Starting PDF to image conversion using pdftoppm...');
-    
+    console.log(
+      "[PDF Conversion] Starting PDF to image conversion using pdftoppm...",
+    );
+
     // Create temp directory if it doesn't exist
     const tempDir = path.join(__dirname, "../temp");
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir, { recursive: true });
     }
-    
+
     // Generate unique temp filename
     const tempPdfPath = path.join(tempDir, `temp_${uuidv4()}.pdf`);
     const outputPrefix = path.join(tempDir, `page_${uuidv4()}`);
-    
+
     try {
       // Write PDF buffer to temp file
       fs.writeFileSync(tempPdfPath, pdfBuffer);
-      console.log('[PDF Conversion] Wrote PDF to temp file');
-      
+      console.log("[PDF Conversion] Wrote PDF to temp file");
+
       // Use pdftoppm to convert PDF to PNG images
       // -png = PNG format
       // -r 150 = 150 DPI resolution (balanced quality, prevents huge images)
       // Output will be: {outputPrefix}-1.png, {outputPrefix}-2.png, etc.
       const command = `pdftoppm -png -r 150 "${tempPdfPath}" "${outputPrefix}"`;
-      console.log('[PDF Conversion] Running pdftoppm...');
-      
+      console.log("[PDF Conversion] Running pdftoppm...");
+
       const { stdout, stderr } = await execAsync(command);
       if (stderr) {
-        console.log('[PDF Conversion] pdftoppm stderr:', stderr);
+        console.log("[PDF Conversion] pdftoppm stderr:", stderr);
       }
-      
+
       // Read generated PNG files
-      const files = fs.readdirSync(tempDir)
-        .filter(f => path.basename(f).startsWith(path.basename(outputPrefix)))
+      const files = fs
+        .readdirSync(tempDir)
+        .filter((f) => path.basename(f).startsWith(path.basename(outputPrefix)))
         .sort(); // Sort to get pages in order
-      
+
       console.log(`[PDF Conversion] Generated ${files.length} page images`);
-      
+
       const images = [];
       for (let i = 0; i < files.length; i++) {
         const filePath = path.join(tempDir, files[i]);
         const buffer = fs.readFileSync(filePath);
-        
+
         // Get image dimensions using sharp with increased pixel limit
-        const metadata = await sharp(buffer, { limitInputPixels: 268402689 }).metadata();
-        
+        const metadata = await sharp(buffer, {
+          limitInputPixels: 268402689,
+        }).metadata();
+
         images.push({
           buffer: buffer,
           page: i + 1,
           width: metadata.width,
           height: metadata.height,
         });
-        
-        console.log(`[PDF Conversion] Page ${i + 1} loaded: ${buffer.length} bytes (${metadata.width}x${metadata.height})`);
-        
+
+        console.log(
+          `[PDF Conversion] Page ${i + 1} loaded: ${buffer.length} bytes (${metadata.width}x${metadata.height})`,
+        );
+
         // Clean up temp image file
         fs.unlinkSync(filePath);
       }
-      
+
       // Clean up temp PDF file
       fs.unlinkSync(tempPdfPath);
-      
+
       console.log(`[PDF Conversion] Total pages converted: ${images.length}`);
       return images;
     } catch (error) {
       // Clean up temp files on error
       try {
         if (fs.existsSync(tempPdfPath)) fs.unlinkSync(tempPdfPath);
-        const files = fs.readdirSync(tempDir)
-          .filter(f => path.basename(f).startsWith(path.basename(outputPrefix)));
-        files.forEach(f => fs.unlinkSync(path.join(tempDir, f)));
+        const files = fs
+          .readdirSync(tempDir)
+          .filter((f) =>
+            path.basename(f).startsWith(path.basename(outputPrefix)),
+          );
+        files.forEach((f) => fs.unlinkSync(path.join(tempDir, f)));
       } catch (cleanupError) {
-        console.error('[PDF Conversion] Cleanup error:', cleanupError.message);
+        console.error("[PDF Conversion] Cleanup error:", cleanupError.message);
       }
       throw error;
     }
   } catch (error) {
-    console.error('[PDF Conversion] Error:', error);
+    console.error("[PDF Conversion] Error:", error);
     throw new Error(`PDF to image conversion failed: ${error.message}`);
   }
 };
@@ -251,9 +261,7 @@ export const savePageImage = async (imageBuffer, vendorId, pageNum) => {
     const filename = `page_${pageNum}_${timestamp}.jpg`;
     const imagePath = path.join(vendorDir, filename);
 
-    await sharp(imageBuffer)
-      .jpeg({ quality: 90 })
-      .toFile(imagePath);
+    await sharp(imageBuffer).jpeg({ quality: 90 }).toFile(imagePath);
 
     return `/uploads/menu-images/${vendorId}/${filename}`;
   } catch (error) {

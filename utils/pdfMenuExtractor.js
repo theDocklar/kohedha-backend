@@ -179,17 +179,23 @@ export const extractMenuWithImages = async (pdfBuffer, vendorId) => {
         );
 
         // Resize image for Gemini API (max 2000px on longest side to avoid timeout)
-        console.log(`Resizing image from ${pageImage.width}x${pageImage.height}...`);
-        const resizedBuffer = await sharp(pageImage.buffer, { limitInputPixels: 268402689 })
-          .resize(2000, 2000, { 
-            fit: 'inside',
-            withoutEnlargement: true 
+        console.log(
+          `Resizing image from ${pageImage.width}x${pageImage.height}...`,
+        );
+        const resizedBuffer = await sharp(pageImage.buffer, {
+          limitInputPixels: 268402689,
+        })
+          .resize(2000, 2000, {
+            fit: "inside",
+            withoutEnlargement: true,
           })
           .jpeg({ quality: 85 })
           .toBuffer();
-        
+
         const resizedMetadata = await sharp(resizedBuffer).metadata();
-        console.log(`Resized to ${resizedMetadata.width}x${resizedMetadata.height}, size: ${(resizedBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+        console.log(
+          `Resized to ${resizedMetadata.width}x${resizedMetadata.height}, size: ${(resizedBuffer.length / 1024 / 1024).toFixed(2)} MB`,
+        );
 
         // Convert resized buffer to base64 for Gemini Vision
         const base64Image = resizedBuffer.toString("base64");
@@ -290,25 +296,31 @@ Your response MUST be valid JSON only, no markdown, no explanations.`;
           pageItems = [];
         }
 
-        console.log(`Found ${pageItems.length} items on page ${pageImage.page}`);
+        console.log(
+          `Found ${pageItems.length} items on page ${pageImage.page}`,
+        );
 
         // Step 3: Process each detected item - crop and save image
         for (const item of pageItems) {
           try {
             console.log(`Processing item: ${item.name}...`);
-            
+
             // Check if item has a food image
             let imageBbox = item.imageBoundingBox;
-            
-            if (!imageBbox || typeof imageBbox.x === 'undefined') {
-              console.log(`  No food image detected for "${item.name}", skipping image crop`);
+
+            if (!imageBbox || typeof imageBbox.x === "undefined") {
+              console.log(
+                `  No food image detected for "${item.name}", skipping image crop`,
+              );
               // Add item without image
               allMenuItems.push({
                 category: String(item.category || "Uncategorized").trim(),
                 name: String(item.name || "Unnamed Item").trim(),
                 description: String(item.description || "").trim(),
                 price: parseFloat(item.price) || 0,
-                currency: String(item.currency || "LKR").toUpperCase().trim(),
+                currency: String(item.currency || "LKR")
+                  .toUpperCase()
+                  .trim(),
                 imageUrl: null,
                 thumbnailUrl: null,
                 imageMetadata: null,
@@ -317,20 +329,25 @@ Your response MUST be valid JSON only, no markdown, no explanations.`;
               });
               continue;
             }
-            
+
             console.log(`  Original bounding box (percentage):`, imageBbox);
-            
+
             // SMART ADJUSTMENT: Fix bounding boxes that likely include text
             // Common menu pattern: Photo on LEFT, text on RIGHT
             // If the box is wider than it is tall, likely it includes both photo and text
             const aspectRatio = imageBbox.width / imageBbox.height;
-            
+
             if (aspectRatio > 2.0) {
               // Very wide box - likely includes both photo and text
-              console.log(`  Box is very wide (ratio: ${aspectRatio.toFixed(2)}) - adjusting to left portion only`);
+              console.log(
+                `  Box is very wide (ratio: ${aspectRatio.toFixed(2)}) - adjusting to left portion only`,
+              );
               // Assume photo is roughly square or portrait, take the left portion
               // Use the height as a guide for width
-              const adjustedWidth = Math.min(imageBbox.width * 0.35, imageBbox.height * 1.2);
+              const adjustedWidth = Math.min(
+                imageBbox.width * 0.35,
+                imageBbox.height * 1.2,
+              );
               imageBbox = {
                 x: imageBbox.x,
                 y: imageBbox.y,
@@ -340,7 +357,9 @@ Your response MUST be valid JSON only, no markdown, no explanations.`;
               console.log(`  Adjusted to:`, imageBbox);
             } else if (aspectRatio > 1.5) {
               // Moderately wide - might include some text
-              console.log(`  Box is moderately wide (ratio: ${aspectRatio.toFixed(2)}) - adjusting to left 50%`);
+              console.log(
+                `  Box is moderately wide (ratio: ${aspectRatio.toFixed(2)}) - adjusting to left 50%`,
+              );
               imageBbox = {
                 x: imageBbox.x,
                 y: imageBbox.y,
@@ -349,21 +368,23 @@ Your response MUST be valid JSON only, no markdown, no explanations.`;
               };
               console.log(`  Adjusted to:`, imageBbox);
             }
-            
+
             // If box is still very large (more than 35% of page), shrink it
             if (imageBbox.width > 35 || imageBbox.height > 35) {
-              console.log(`  Box is too large (${imageBbox.width}% x ${imageBbox.height}%) - shrinking to 80%`);
+              console.log(
+                `  Box is too large (${imageBbox.width}% x ${imageBbox.height}%) - shrinking to 80%`,
+              );
               const centerX = imageBbox.x + imageBbox.width / 2;
               const centerY = imageBbox.y + imageBbox.height / 2;
               imageBbox = {
-                x: centerX - (imageBbox.width * 0.4),
-                y: centerY - (imageBbox.height * 0.4),
+                x: centerX - imageBbox.width * 0.4,
+                y: centerY - imageBbox.height * 0.4,
                 width: imageBbox.width * 0.8,
                 height: imageBbox.height * 0.8,
               };
               console.log(`  Shrunken to:`, imageBbox);
             }
-            
+
             // Convert percentage-based bounding box to pixel coordinates
             const pixelBbox = {
               x: (imageBbox.x / 100) * pageImage.width,
@@ -379,7 +400,9 @@ Your response MUST be valid JSON only, no markdown, no explanations.`;
               pageImage.buffer,
               pixelBbox,
             );
-            console.log(`  Cropped successfully, buffer size: ${croppedBuffer.length} bytes`);
+            console.log(
+              `  Cropped successfully, buffer size: ${croppedBuffer.length} bytes`,
+            );
 
             // Save cropped image and thumbnail
             console.log(`  Saving image...`);
@@ -396,7 +419,9 @@ Your response MUST be valid JSON only, no markdown, no explanations.`;
               name: String(item.name || "Unnamed Item").trim(),
               description: String(item.description || "").trim(),
               price: parseFloat(item.price) || 0,
-              currency: String(item.currency || "LKR").toUpperCase().trim(),
+              currency: String(item.currency || "LKR")
+                .toUpperCase()
+                .trim(),
               imageUrl: imageData.imageUrl,
               thumbnailUrl: imageData.thumbnailUrl,
               imageMetadata: imageData.metadata,
@@ -417,7 +442,9 @@ Your response MUST be valid JSON only, no markdown, no explanations.`;
               name: String(item.name || "Unnamed Item").trim(),
               description: String(item.description || "").trim(),
               price: parseFloat(item.price) || 0,
-              currency: String(item.currency || "LKR").toUpperCase().trim(),
+              currency: String(item.currency || "LKR")
+                .toUpperCase()
+                .trim(),
               imageUrl: null,
               thumbnailUrl: null,
               imageMetadata: null,
@@ -444,4 +471,3 @@ Your response MUST be valid JSON only, no markdown, no explanations.`;
     throw new Error(`Menu extraction with images failed: ${error.message}`);
   }
 };
-

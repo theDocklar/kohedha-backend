@@ -9,7 +9,10 @@ import {
   transformRow,
   getSuggestedMappings,
 } from "../utils/csvMapper.js";
-import { extractMenuFromPDF, extractMenuWithImages } from "../utils/pdfMenuExtractor.js";
+import {
+  extractMenuFromPDF,
+  extractMenuWithImages,
+} from "../utils/pdfMenuExtractor.js";
 
 // Upload menu items via CSV with intelligent column mapping
 export const uploadMenuCSV = async (req, res) => {
@@ -682,7 +685,8 @@ export const uploadMenuPDFWithImages = async (req, res) => {
     if (isPreviewMode) {
       return res.status(200).json({
         success: true,
-        message: "PDF menu with images extracted successfully. Review the items below.",
+        message:
+          "PDF menu with images extracted successfully. Review the items below.",
         preview: true,
         data: {
           filename: req.file.originalname,
@@ -755,4 +759,3 @@ export const uploadMenuPDFWithImages = async (req, res) => {
     });
   }
 };
-
