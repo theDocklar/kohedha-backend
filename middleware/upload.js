@@ -1,11 +1,11 @@
 import multer from "multer";
 import path from "path";
+import fs from "fs";
 
-// Configure multer for memory storage
-const storage = multer.memoryStorage();
+// ── Memory storage (CSV / PDF) ────────────────────────────────────────────────
+const memoryStorage = multer.memoryStorage();
 
-// Filter to accept only CSV files
-const fileFilter = (req, file, cb) => {
+const csvPdfFilter = (req, file, cb) => {
   const allowedMimeTypes = [
     "text/csv",
     "application/vnd.ms-excel",
@@ -15,23 +15,58 @@ const fileFilter = (req, file, cb) => {
   const allowedExtensions = [".csv", ".pdf"];
 
   const ext = path.extname(file.originalname).toLowerCase();
-  const mimeType = file.mimetype;
-
-  if (allowedMimeTypes.includes(mimeType) && allowedExtensions.includes(ext)) {
+  if (
+    allowedMimeTypes.includes(file.mimetype) &&
+    allowedExtensions.includes(ext)
+  ) {
     cb(null, true);
   } else {
     cb(new Error("Only CSV and PDF files are allowed"), false);
   }
 };
 
-// Configure multer with limits
 const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
-    files: 1,
+  storage: memoryStorage,
+  fileFilter: csvPdfFilter,
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+});
+
+// Disk storage (menu item images)
+const MENU_IMAGE_DIR = "uploads/menu-images";
+
+// Ensure the directory exists at startup
+if (!fs.existsSync(MENU_IMAGE_DIR)) {
+  fs.mkdirSync(MENU_IMAGE_DIR, { recursive: true });
+}
+
+const menuImageStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, MENU_IMAGE_DIR),
+  filename: (_req, file, cb) => {
+    const short = Math.random().toString(36).slice(2, 8);
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `m-${short}${ext}`);
   },
+});
+
+const imageFilter = (req, file, cb) => {
+  const allowedMimeTypes = ["image/jpeg", "image/png", "image/webp"];
+  const allowedExtensions = [".jpg", ".jpeg", ".png", ".webp"];
+
+  const ext = path.extname(file.originalname).toLowerCase();
+  if (
+    allowedMimeTypes.includes(file.mimetype) &&
+    allowedExtensions.includes(ext)
+  ) {
+    cb(null, true);
+  } else {
+    cb(new Error("Only JPEG, PNG, and WebP images are allowed"), false);
+  }
+};
+
+export const uploadMenuImage = multer({
+  storage: menuImageStorage,
+  fileFilter: imageFilter,
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 }, // 5 MB
 });
 
 export default upload;

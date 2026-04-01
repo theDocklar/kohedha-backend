@@ -36,6 +36,10 @@ const menuItemSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    image: {
+      type: String,
+      default: null,
+    },
   },
   {
     timestamps: true,
