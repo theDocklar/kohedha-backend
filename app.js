@@ -2,6 +2,8 @@ import dotenv from "dotenv";
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import path from "path";
+import { fileURLToPath } from "url";
 import connectDB from "./config/db.js";
 import passport from "passport";
 import { setupPassport } from "./config/passport.js";
@@ -22,6 +24,9 @@ import dealRoutes from "./routes/dealRoutes.js";
 const app = express();
 const port = process.env.PORT || 5002;
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 connectDB();
 setupPassport();
 
@@ -36,6 +41,9 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(passport.initialize());
+
+// Serve uploaded files (menu images, etc.)
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // Routes
 app.use("/api/vendor", vendorRoutes);

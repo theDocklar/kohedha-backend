@@ -281,20 +281,48 @@ export const updateMenuItem = async (req, res) => {
   try {
     const { id } = req.params;
     const vendorId = req.vendor.id;
-    const updates = req.body;
+    const updates = { ...req.body };
+
+    // If a new image was uploaded, build its URL and schedule old file deletion
+    if (req.file) {
+      updates.image = `${req.protocol}://${req.get("host")}/uploads/menu-images/${req.file.filename}`;
+    }
+
+    const existing = await Menu.findOne({ _id: id, vendorId });
+
+    if (!existing) {
+      // Clean up newly uploaded file since item wasn't found
+      if (req.file) {
+        const fs = await import("fs");
+        fs.unlink(req.file.path, () => {});
+      }
+      return res.status(404).json({
+        success: false,
+        message: "Menu item not found",
+      });
+    }
+
+    // Delete old image file from disk if it's being replaced
+    if (req.file && existing.image) {
+      try {
+        const fs = await import("fs");
+        const path = await import("path");
+        const oldFilename = existing.image.split("/").pop();
+        const oldPath = path.join(
+          process.cwd(),
+          "uploads",
+          "menu-images",
+          oldFilename,
+        );
+        fs.unlink(oldPath, () => {});
+      } catch (_) {}
+    }
 
     const menuItem = await Menu.findOneAndUpdate(
       { _id: id, vendorId },
       updates,
       { new: true, runValidators: true },
     );
-
-    if (!menuItem) {
-      return res.status(404).json({
-        success: false,
-        message: "Menu item not found",
-      });
-    }
 
     return res.status(200).json({
       success: true,
@@ -564,6 +592,82 @@ export const saveEditedPDFMenuItems = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Internal server error while saving items",
+      error: error.message,
+    });
+  }
+};
+
+// Create a single menu item (with optional image)
+export const createMenuItem = async (req, res) => {
+  try {
+    const vendorId = req.vendor.id;
+    const { category, name, description, price, currency, is_available } =
+      req.body;
+
+    // Basic required-field validation
+    if (
+      !category ||
+      !name ||
+      price === undefined ||
+      price === null ||
+      price === ""
+    ) {
+      // Clean up uploaded file if validation fails
+      if (req.file) {
+        const fs = await import("fs");
+        fs.unlink(req.file.path, () => {});
+      }
+      return res.status(400).json({
+        success: false,
+        message: "category, name, and price are required",
+      });
+    }
+
+    const parsedPrice = parseFloat(price);
+    if (isNaN(parsedPrice) || parsedPrice < 0) {
+      if (req.file) {
+        const fs = await import("fs");
+        fs.unlink(req.file.path, () => {});
+      }
+      return res.status(400).json({
+        success: false,
+        message: "price must be a non-negative number",
+      });
+    }
+
+    const imageUrl = req.file
+      ? `${req.protocol}://${req.get("host")}/uploads/menu-images/${req.file.filename}`
+      : null;
+
+    const menuItem = await Menu.create({
+      vendorId,
+      category: category.trim(),
+      name: name.trim(),
+      description: description ? description.trim() : "",
+      price: parsedPrice,
+      currency: currency ? currency.toUpperCase() : "LKR",
+      is_available:
+        is_available !== undefined
+          ? is_available === "true" || is_available === true
+          : true,
+      image: imageUrl,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Menu item created successfully",
+      data: menuItem,
+    });
+  } catch (error) {
+    // Clean up uploaded file on unexpected error
+    if (req.file) {
+      const fs = await import("fs");
+      fs.unlink(req.file.path, () => {});
+    }
+    console.error("Create menu item error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to create menu item",
       error: error.message,
     });
   }
