@@ -49,7 +49,7 @@ export const createEvent = async (req, res) => {
       ticketPrice: ticketPrice || 0,
       images: images || [],
       isFree: ticketPrice > 0 ? false : true,
-      isPublished: isPublished || false,
+      isPublished: isPublished !== undefined ? isPublished : true,
       tags: tags || [],
       contactPerson: contactPerson || {},
       status: "upcoming",
