@@ -10,6 +10,36 @@ import {
   getSuggestedMappings,
 } from "../utils/csvMapper.js";
 import { extractMenuFromPDF } from "../utils/pdfMenuExtractor.js";
+import cloudinary from "../config/cloudinary.js";
+
+// Helper function to extract Cloudinary public_id from URL
+const extractPublicId = (url) => {
+  if (!url || !url.includes("cloudinary.com")) return null;
+  try {
+    // Extract public_id from Cloudinary URL
+    // Format: https://res.cloudinary.com/{cloud_name}/image/upload/{transformations}/{public_id}.{format}
+    const parts = url.split("/");
+    const uploadIndex = parts.indexOf("upload");
+    if (uploadIndex === -1) return null;
+
+    // Get everything after 'upload/' (skip transformations if any)
+    const afterUpload = parts.slice(uploadIndex + 1);
+    // Skip transformation folders (they start with v_ or contain _ and numbers)
+    const publicIdParts = afterUpload.filter(
+      (part) => !part.startsWith("v") || part.includes("koheda"),
+    );
+    const publicIdWithExt = publicIdParts.join("/");
+
+    // Remove file extension
+    const publicId =
+      publicIdWithExt.substring(0, publicIdWithExt.lastIndexOf(".")) ||
+      publicIdWithExt;
+    return publicId;
+  } catch (err) {
+    console.error("Error extracting public_id:", err);
+    return null;
+  }
+};
 
 // Upload menu items via CSV with intelligent column mapping
 export const uploadMenuCSV = async (req, res) => {
@@ -283,18 +313,24 @@ export const updateMenuItem = async (req, res) => {
     const vendorId = req.vendor.id;
     const updates = { ...req.body };
 
-    // If a new image was uploaded, build its URL and schedule old file deletion
+    // If a new image was uploaded, use Cloudinary URL
     if (req.file) {
-      updates.image = `${req.protocol}://${req.get("host")}/uploads/menu-images/${req.file.filename}`;
+      updates.image = req.file.path; // Cloudinary provides the full URL in req.file.path
     }
 
     const existing = await Menu.findOne({ _id: id, vendorId });
 
     if (!existing) {
-      // Clean up newly uploaded file since item wasn't found
+      // Clean up newly uploaded Cloudinary file since item wasn't found
       if (req.file) {
-        const fs = await import("fs");
-        fs.unlink(req.file.path, () => {});
+        try {
+          const publicId = extractPublicId(req.file.path);
+          if (publicId) {
+            await cloudinary.uploader.destroy(publicId);
+          }
+        } catch (err) {
+          console.error("Error deleting Cloudinary image:", err);
+        }
       }
       return res.status(404).json({
         success: false,
@@ -302,20 +338,16 @@ export const updateMenuItem = async (req, res) => {
       });
     }
 
-    // Delete old image file from disk if it's being replaced
+    // Delete old image from Cloudinary if it's being replaced
     if (req.file && existing.image) {
       try {
-        const fs = await import("fs");
-        const path = await import("path");
-        const oldFilename = existing.image.split("/").pop();
-        const oldPath = path.join(
-          process.cwd(),
-          "uploads",
-          "menu-images",
-          oldFilename,
-        );
-        fs.unlink(oldPath, () => {});
-      } catch (_) {}
+        const publicId = extractPublicId(existing.image);
+        if (publicId) {
+          await cloudinary.uploader.destroy(publicId);
+        }
+      } catch (err) {
+        console.error("Error deleting old Cloudinary image:", err);
+      }
     }
 
     const menuItem = await Menu.findOneAndUpdate(
@@ -351,6 +383,18 @@ export const deleteMenuItem = async (req, res) => {
         success: false,
         message: "Menu item not found",
       });
+    }
+
+    // Delete image from Cloudinary if it exists
+    if (menuItem.image) {
+      try {
+        const publicId = extractPublicId(menuItem.image);
+        if (publicId) {
+          await cloudinary.uploader.destroy(publicId);
+        }
+      } catch (err) {
+        console.error("Error deleting Cloudinary image:", err);
+      }
     }
 
     return res.status(200).json({
@@ -612,10 +656,16 @@ export const createMenuItem = async (req, res) => {
       price === null ||
       price === ""
     ) {
-      // Clean up uploaded file if validation fails
+      // Clean up uploaded Cloudinary file if validation fails
       if (req.file) {
-        const fs = await import("fs");
-        fs.unlink(req.file.path, () => {});
+        try {
+          const publicId = extractPublicId(req.file.path);
+          if (publicId) {
+            await cloudinary.uploader.destroy(publicId);
+          }
+        } catch (err) {
+          console.error("Error deleting Cloudinary image:", err);
+        }
       }
       return res.status(400).json({
         success: false,
@@ -626,8 +676,14 @@ export const createMenuItem = async (req, res) => {
     const parsedPrice = parseFloat(price);
     if (isNaN(parsedPrice) || parsedPrice < 0) {
       if (req.file) {
-        const fs = await import("fs");
-        fs.unlink(req.file.path, () => {});
+        try {
+          const publicId = extractPublicId(req.file.path);
+          if (publicId) {
+            await cloudinary.uploader.destroy(publicId);
+          }
+        } catch (err) {
+          console.error("Error deleting Cloudinary image:", err);
+        }
       }
       return res.status(400).json({
         success: false,
@@ -635,9 +691,7 @@ export const createMenuItem = async (req, res) => {
       });
     }
 
-    const imageUrl = req.file
-      ? `${req.protocol}://${req.get("host")}/uploads/menu-images/${req.file.filename}`
-      : null;
+    const imageUrl = req.file ? req.file.path : null; // Cloudinary URL
 
     const menuItem = await Menu.create({
       vendorId,
@@ -659,10 +713,16 @@ export const createMenuItem = async (req, res) => {
       data: menuItem,
     });
   } catch (error) {
-    // Clean up uploaded file on unexpected error
+    // Clean up uploaded Cloudinary file on unexpected error
     if (req.file) {
-      const fs = await import("fs");
-      fs.unlink(req.file.path, () => {});
+      try {
+        const publicId = extractPublicId(req.file.path);
+        if (publicId) {
+          await cloudinary.uploader.destroy(publicId);
+        }
+      } catch (err) {
+        console.error("Error deleting Cloudinary image:", err);
+      }
     }
     console.error("Create menu item error:", error);
     return res.status(500).json({
