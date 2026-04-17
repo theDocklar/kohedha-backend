@@ -11,7 +11,9 @@ import {
   createRecurringBookingSlot,
   deleteRecurringSeries,
   confirmReservation,
-  cancelReservation
+  cancelReservation,
+  getAvailableDatesForSlot,
+  validateSlotDate,
 } from "../controller/bookingSlotController.js";
 
 const router = express.Router();
@@ -19,6 +21,10 @@ const router = express.Router();
 // Recurring slot routes
 router.post("/recurring", protect, createRecurringBookingSlot);
 router.delete("/recurring/:groupId", protect, deleteRecurringSeries);
+
+// Public availability endpoints (no auth required)
+router.get("/public/:token/available-dates", getAvailableDatesForSlot);
+router.get("/public/:token/validate-date", validateSlotDate);
 
 // Normal slot routes
 router.post("/create", protect, createBookingSlot);
@@ -28,7 +34,15 @@ router.put("/:id", protect, updateBookingSlot);
 router.delete("/:id", protect, deleteBookingSlot);
 router.patch("/:id/status", protect, toggleBookingSlotStatus);
 router.get("/:id/reservation", protect, getBookingSlotReservations);
-router.patch("/:slotId/reservation/confirm/:reservationId", protect, confirmReservation);
-router.patch("/:slotId/reservation/cancel/:reservationId", protect, cancelReservation);
+router.patch(
+  "/:slotId/reservation/confirm/:reservationId",
+  protect,
+  confirmReservation,
+);
+router.patch(
+  "/:slotId/reservation/cancel/:reservationId",
+  protect,
+  cancelReservation,
+);
 
 export default router;
