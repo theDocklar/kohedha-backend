@@ -21,9 +21,22 @@ const bookingSlotSchema = mongoose.Schema(
       required: true,
     },
 
+    // For single-date slots (legacy support)
     date: {
       type: Date,
-      required: true,
+      required: false,
+    },
+
+    // For recurring slots - date range
+    dateRange: {
+      start: {
+        type: Date,
+        required: false,
+      },
+      end: {
+        type: Date,
+        required: false, // null means indefinite
+      },
     },
 
     startTime: {
@@ -75,13 +88,6 @@ const bookingSlotSchema = mongoose.Schema(
     },
 
     // Recurrence fields
-    recurrenceGroupId: {
-      // Ties all occurrences of a recurring series together
-      type: String,
-      default: null,
-      index: true,
-    },
-
     isRecurring: {
       type: Boolean,
       default: false,
@@ -91,14 +97,42 @@ const bookingSlotSchema = mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
       default: null,
     },
+
+    // Optional: blackout dates for recurring slots
+    excludedDates: {
+      type: [Date],
+      default: [],
+    },
+
+    description: {
+      type: String,
+      trim: true,
+      default: "",
+    },
   },
   { timestamps: true },
 );
 
-// Generate unique public token
-bookingSlotSchema.pre("save", function () {
+// Generate unique public token and validation
+bookingSlotSchema.pre("save", async function () {
+  // Generate token for new slots
   if (this.isNew && !this.publicToken) {
     this.publicToken = crypto.randomBytes(16).toString("hex");
+  }
+
+  // Validation: Must have either date OR dateRange.start
+  if (!this.date && !this.dateRange?.start) {
+    throw new Error("Either 'date' or 'dateRange.start' is required");
+  }
+
+  // Validation: If recurring, must have dateRange and recurrenceRule
+  if (this.isRecurring) {
+    if (!this.dateRange?.start) {
+      throw new Error("Recurring slots must have a dateRange.start date");
+    }
+    if (!this.recurrenceRule) {
+      throw new Error("Recurring slots must have a recurrenceRule");
+    }
   }
 });
 
@@ -109,9 +143,11 @@ bookingSlotSchema.methods.getPublicLink = function () {
 };
 
 // Indexes
-bookingSlotSchema.index({ vendorId: 1, date: 1, sectionId: 1 });
+bookingSlotSchema.index({ vendorId: 1, date: 1, sectionId: 1 }); // Legacy single-date slots
+bookingSlotSchema.index({ vendorId: 1, "dateRange.start": 1, sectionId: 1 }); // Recurring slots
 bookingSlotSchema.index({ vendorId: 1, isActive: 1 });
-bookingSlotSchema.index({ recurrenceGroupId: 1, date: 1 });
+bookingSlotSchema.index({ publicToken: 1 });
+bookingSlotSchema.index({ isRecurring: 1 });
 
 const BookingSlot = mongoose.model("BookingSlot", bookingSlotSchema);
 export default BookingSlot;

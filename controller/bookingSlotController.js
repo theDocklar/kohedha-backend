@@ -6,6 +6,14 @@ import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
 import { generateOccurrences } from "../utils/recurrenceUtils.js";
 
+// Convert a Date to a YYYY-MM-DD string using LOCAL time (avoids UTC day-shift in non-UTC timezones)
+const toLocalDateStr = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
 // Create booking
 export const createBookingSlot = async (req, res) => {
   try {
@@ -557,7 +565,7 @@ export const cancelReservation = async (req, res) => {
   }
 };
 
-// Create recurring booking slots
+// Create recurring booking slots (NEW DYNAMIC APPROACH)
 export const createRecurringBookingSlot = async (req, res) => {
   try {
     const vendorId = req.vendor.id;
@@ -590,10 +598,10 @@ export const createRecurringBookingSlot = async (req, res) => {
       });
     }
 
-    if (!rangeStart || !rangeEnd) {
+    if (!rangeStart) {
       return res.status(400).json({
         success: false,
-        message: "rangeStart and rangeEnd are required for recurring slots",
+        message: "rangeStart is required for recurring slots",
       });
     }
 
@@ -614,14 +622,16 @@ export const createRecurringBookingSlot = async (req, res) => {
       });
     }
 
-    // Enforce a max look-ahead of 1 year
-    const maxEnd = new Date(today);
-    maxEnd.setFullYear(maxEnd.getFullYear() + 1);
-    if (new Date(rangeEnd) > maxEnd) {
-      return res.status(400).json({
-        success: false,
-        message: "rangeEnd cannot be more than 1 year in the future",
-      });
+    // If rangeEnd provided, enforce max 2 year look-ahead
+    if (rangeEnd) {
+      const maxEnd = new Date(today);
+      maxEnd.setFullYear(maxEnd.getFullYear() + 2);
+      if (new Date(rangeEnd) > maxEnd) {
+        return res.status(400).json({
+          success: false,
+          message: "rangeEnd cannot be more than 2 years in the future",
+        });
+      }
     }
 
     // Section check
@@ -638,10 +648,21 @@ export const createRecurringBookingSlot = async (req, res) => {
       });
     }
 
-    // Generate occurrence dates
-    let dates;
+    // Validate recurrence rule by generating test occurrences
     try {
-      dates = generateOccurrences(recurrence, rangeStart, rangeEnd);
+      const testEnd =
+        rangeEnd ||
+        new Date(
+          new Date(rangeStart).setMonth(new Date(rangeStart).getMonth() + 1),
+        );
+      const testDates = generateOccurrences(recurrence, rangeStart, testEnd);
+
+      if (testDates.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "The recurrence rule produces no valid dates",
+        });
+      }
     } catch (err) {
       return res.status(400).json({
         success: false,
@@ -649,65 +670,48 @@ export const createRecurringBookingSlot = async (req, res) => {
       });
     }
 
-    if (dates.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "The recurrence rule produced no dates within the given range",
-      });
-    }
-
-    if (dates.length > 365) {
-      return res.status(400).json({
-        success: false,
-        message: `Too many occurrences (${dates.length}). Maximum allowed is 365`,
-      });
-    }
-
-    const recurrenceGroupId = uuidv4();
-    const slotDocs = dates.map((date) => ({
+    // Create ONE slot definition with dateRange
+    const bookingSlot = await BookingSlot.create({
       vendorId,
       slotName,
       slotType,
-      date: new Date(
-        Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0),
-      ),
       startTime,
       endTime,
       sectionId,
       description: description || "",
       maxBookings: maxBookings || null,
       isActive: true,
-      totalBookings: 0,
       isRecurring: true,
-      recurrenceGroupId,
       recurrenceRule: recurrence,
-      publicToken: crypto.randomBytes(16).toString("hex"),
-    }));
+      dateRange: {
+        start: new Date(rangeStart),
+        end: rangeEnd ? new Date(rangeEnd) : null, // null = indefinite
+      },
+    });
 
-    const inserted = await BookingSlot.insertMany(slotDocs);
-
-    // Public links
-    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-    const slotsWithLinks = inserted.map((slot) => ({
-      _id: slot._id,
-      date: slot.date,
-      publicToken: slot.publicToken,
-      publicLink: `${frontendUrl}/book/${slot.publicToken}`,
-    }));
-
-    console.log(
-      `[Recurring] Created ${inserted.length} slots. Group: ${recurrenceGroupId}`,
+    // Populate section info
+    const populatedSlot = await BookingSlot.findById(bookingSlot._id).populate(
+      "sectionId",
+      "sectionName sectionType",
     );
+
+    // Generate public link
+    const publicLink = populatedSlot.getPublicLink();
+
+    console.log(`[Recurring] Created dynamic slot: ${populatedSlot._id}`);
 
     return res.status(201).json({
       success: true,
-      message: `${inserted.length} recurring booking slots created successfully`,
+      message: "Recurring booking slot created successfully (dynamic)",
       data: {
-        recurrenceGroupId,
+        bookingSlot: populatedSlot,
+        publicLink: publicLink,
+        publicToken: populatedSlot.publicToken,
         recurrenceRule: recurrence,
-        range: { start: rangeStart, end: rangeEnd },
-        count: inserted.length,
-        slots: slotsWithLinks,
+        dateRange: {
+          start: rangeStart,
+          end: rangeEnd || "indefinite",
+        },
       },
     });
   } catch (error) {
@@ -801,6 +805,263 @@ export const deleteRecurringSeries = async (req, res) => {
     });
   } catch (error) {
     console.error("Delete recurring series error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+// Get available dates for a recurring slot (PUBLIC - for customers)
+export const getAvailableDatesForSlot = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { lookAhead } = req.query; // Optional: days to look ahead (default 90)
+
+    const bookingSlot = await BookingSlot.findOne({
+      publicToken: token,
+      isActive: true,
+    });
+
+    if (!bookingSlot) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking slot not found or inactive",
+      });
+    }
+
+    // For non-recurring slots, return the single date
+    if (!bookingSlot.isRecurring) {
+      return res.status(200).json({
+        success: true,
+        isRecurring: false,
+        availableDates: [bookingSlot.date],
+      });
+    }
+
+    // For recurring slots, generate dates dynamically
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const rangeStart =
+      toLocalDateStr(new Date(bookingSlot.dateRange.start)) >
+      toLocalDateStr(today)
+        ? new Date(bookingSlot.dateRange.start)
+        : today;
+
+    // Determine end date
+    const daysAhead = parseInt(lookAhead) || 90; // Default 90 days
+    const defaultEnd = new Date(today);
+    defaultEnd.setDate(defaultEnd.getDate() + daysAhead);
+
+    let rangeEnd;
+    if (bookingSlot.dateRange.end) {
+      // Use the earlier of slot end or lookAhead
+      rangeEnd =
+        toLocalDateStr(new Date(bookingSlot.dateRange.end)) <
+        toLocalDateStr(defaultEnd)
+          ? new Date(bookingSlot.dateRange.end)
+          : defaultEnd;
+    } else {
+      rangeEnd = defaultEnd;
+    }
+
+    // Generate available dates
+    let availableDates;
+    try {
+      const allDates = generateOccurrences(
+        bookingSlot.recurrenceRule,
+        rangeStart,
+        rangeEnd,
+      );
+
+      // Filter out excluded dates
+      const nonExcluded = allDates.filter((date) => {
+        const dateStr = toLocalDateStr(date);
+        return !bookingSlot.excludedDates.some(
+          (excluded) => toLocalDateStr(excluded) === dateStr,
+        );
+      });
+
+      // Filter out fully-booked dates when maxBookings is set
+      if (bookingSlot.maxBookings !== null && nonExcluded.length > 0) {
+        // Batch-count bookings per day in a single aggregation query
+        const startBound = new Date(nonExcluded[0]);
+        startBound.setHours(0, 0, 0, 0);
+        const endBound = new Date(nonExcluded[nonExcluded.length - 1]);
+        endBound.setHours(23, 59, 59, 999);
+
+        const bookingCounts = await Reservation.aggregate([
+          {
+            $match: {
+              bookingSlotId: bookingSlot._id,
+              reservationDate: { $gte: startBound, $lte: endBound },
+              status: { $in: ["pending", "confirmed"] },
+            },
+          },
+          {
+            $group: {
+              _id: {
+                $dateToString: { format: "%Y-%m-%d", date: "$reservationDate" },
+              },
+              count: { $sum: 1 },
+            },
+          },
+        ]);
+
+        const fullyBooked = new Set(
+          bookingCounts
+            .filter((r) => r.count >= bookingSlot.maxBookings)
+            .map((r) => r._id),
+        );
+
+        availableDates = nonExcluded.filter(
+          (d) => !fullyBooked.has(toLocalDateStr(d)),
+        );
+      } else {
+        // No maxBookings cap, or nothing to check — all non-excluded dates are available
+        availableDates = nonExcluded;
+      }
+    } catch (err) {
+      return res.status(500).json({
+        success: false,
+        message: `Error generating dates: ${err.message}`,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      isRecurring: true,
+      dateRange: {
+        start: bookingSlot.dateRange.start,
+        end: bookingSlot.dateRange.end || "indefinite",
+      },
+      recurrenceRule: bookingSlot.recurrenceRule,
+      availableDates: availableDates.map((d) => toLocalDateStr(d)),
+      count: availableDates.length,
+    });
+  } catch (error) {
+    console.error("Get available dates error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+// Check if specific date is valid for recurring slot (VALIDATION HELPER)
+export const validateSlotDate = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { date } = req.query;
+
+    if (!date) {
+      return res.status(400).json({
+        success: false,
+        message: "date query parameter is required (format: YYYY-MM-DD)",
+      });
+    }
+
+    const bookingSlot = await BookingSlot.findOne({
+      publicToken: token,
+      isActive: true,
+    });
+
+    if (!bookingSlot) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking slot not found or inactive",
+      });
+    }
+
+    const selectedDate = new Date(date);
+    selectedDate.setHours(0, 0, 0, 0);
+
+    // For non-recurring slots
+    if (!bookingSlot.isRecurring) {
+      const slotDate = new Date(bookingSlot.date);
+      slotDate.setHours(0, 0, 0, 0);
+
+      const isValid = selectedDate.getTime() === slotDate.getTime();
+
+      return res.status(200).json({
+        success: true,
+        isValid,
+        message: isValid ? "Date is valid" : "Date does not match slot date",
+      });
+    }
+
+    // For recurring slots
+    // Check if date is within range
+    if (
+      toLocalDateStr(selectedDate) <
+      toLocalDateStr(new Date(bookingSlot.dateRange.start))
+    ) {
+      return res.status(200).json({
+        success: true,
+        isValid: false,
+        message: "Date is before slot start date",
+      });
+    }
+
+    if (
+      bookingSlot.dateRange.end &&
+      toLocalDateStr(selectedDate) >
+        toLocalDateStr(new Date(bookingSlot.dateRange.end))
+    ) {
+      return res.status(200).json({
+        success: true,
+        isValid: false,
+        message: "Date is after slot end date",
+      });
+    }
+
+    // Check if date is in excluded dates
+    const dateStr = toLocalDateStr(selectedDate);
+    const isExcluded = bookingSlot.excludedDates.some(
+      (excluded) => toLocalDateStr(excluded) === dateStr,
+    );
+
+    if (isExcluded) {
+      return res.status(200).json({
+        success: true,
+        isValid: false,
+        message: "Date is excluded (blackout date)",
+      });
+    }
+
+    // Check if date matches recurrence pattern
+    try {
+      const testEnd = new Date(selectedDate);
+      testEnd.setDate(testEnd.getDate() + 1);
+
+      const validDates = generateOccurrences(
+        bookingSlot.recurrenceRule,
+        selectedDate,
+        testEnd,
+      );
+
+      const isValid = validDates.some((d) => {
+        const vd = new Date(d);
+        vd.setHours(0, 0, 0, 0);
+        return vd.getTime() === selectedDate.getTime();
+      });
+
+      return res.status(200).json({
+        success: true,
+        isValid,
+        message: isValid
+          ? "Date is valid for this recurring slot"
+          : "Date does not match recurrence pattern",
+      });
+    } catch (err) {
+      return res.status(500).json({
+        success: false,
+        message: `Error validating date: ${err.message}`,
+      });
+    }
+  } catch (error) {
+    console.error("Validate slot date error:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",

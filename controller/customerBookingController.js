@@ -4,6 +4,14 @@ import Table from "../models/tableModel.js";
 import Section from "../models/sectionModel.js";
 import Vendor from "../models/vendorModel.js";
 
+// Convert a Date to a YYYY-MM-DD string using LOCAL time (avoids UTC day-shift in non-UTC timezones)
+const toLocalDateStr = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
 // Get booking slot details (no auth)
 export const getPublicBookingSlot = async (req, res) => {
   try {
@@ -26,16 +34,28 @@ export const getPublicBookingSlot = async (req, res) => {
       });
     }
 
-    // Check if slot date is in the past
-    const slotDate = new Date(bookingSlot.date);
-    slotDate.setHours(23, 59, 59, 999);
-    const now = new Date();
+    // For single-date slots: check if the date has passed
+    if (!bookingSlot.isRecurring) {
+      const slotDate = new Date(bookingSlot.date);
+      slotDate.setHours(23, 59, 59, 999);
+      if (slotDate < new Date()) {
+        return res.status(410).json({
+          success: false,
+          message: "This booking slot has expired",
+        });
+      }
+    }
 
-    if (slotDate < now) {
-      return res.status(410).json({
-        success: false,
-        message: "This booking slot has expired",
-      });
+    // For recurring slots: check if the series end date has passed
+    if (bookingSlot.isRecurring && bookingSlot.dateRange?.end) {
+      const endDate = new Date(bookingSlot.dateRange.end);
+      endDate.setHours(23, 59, 59, 999);
+      if (endDate < new Date()) {
+        return res.status(410).json({
+          success: false,
+          message: "This booking slot series has ended",
+        });
+      }
     }
 
     // Get all tables in this section
@@ -45,10 +65,17 @@ export const getPublicBookingSlot = async (req, res) => {
       isActive: true,
     }).select("tableNumber seatingCapacity shape");
 
-    // Check if max bookings reached
-    const spotsAvailable =
-      bookingSlot.maxBookings === null ||
-      bookingSlot.totalBookings < bookingSlot.maxBookings;
+    // For single-date slots: check max bookings via totalBookings counter.
+    // For recurring slots: availability is per-day and enforced at booking time,
+    // so report true here (the date picker filters fully-booked days separately).
+    let spotsAvailable;
+    if (bookingSlot.isRecurring) {
+      spotsAvailable = true; // per-day enforcement happens in createPublicReservation
+    } else {
+      spotsAvailable =
+        bookingSlot.maxBookings === null ||
+        (bookingSlot.totalBookings || 0) < bookingSlot.maxBookings;
+    }
 
     res.status(200).json({
       success: true,
@@ -57,7 +84,13 @@ export const getPublicBookingSlot = async (req, res) => {
         slotName: bookingSlot.slotName,
         slotType: bookingSlot.slotType,
         description: bookingSlot.description,
-        date: bookingSlot.date,
+        isRecurring: bookingSlot.isRecurring || false,
+        // Single-date slots
+        date: bookingSlot.date || null,
+        // Recurring slots
+        dateRange: bookingSlot.dateRange || null,
+        recurrenceRule: bookingSlot.recurrenceRule || null,
+        excludedDates: bookingSlot.excludedDates || [],
         timeWindow: {
           start: bookingSlot.startTime,
           end: bookingSlot.endTime,
@@ -76,7 +109,7 @@ export const getPublicBookingSlot = async (req, res) => {
           phone: bookingSlot.vendorId.vendorMobile,
         },
         totalTables: tables.length,
-        totalBookings: bookingSlot.totalBookings,
+        totalBookings: bookingSlot.totalBookings || 0,
         maxBookings: bookingSlot.maxBookings,
         spotsAvailable: spotsAvailable,
       },
@@ -94,7 +127,7 @@ export const getPublicBookingSlot = async (req, res) => {
 export const getAvailableTablesForSlot = async (req, res) => {
   try {
     const { token } = req.params;
-    const { startTime, endTime, numberOfGuests } = req.query;
+    const { startTime, endTime, numberOfGuests, date } = req.query;
 
     if (!startTime || !endTime) {
       return res.status(400).json({
@@ -113,6 +146,22 @@ export const getAvailableTablesForSlot = async (req, res) => {
         success: false,
         message: "Booking slot not found or inactive",
       });
+    }
+
+    // Determine the date to check
+    let checkDate;
+    if (bookingSlot.isRecurring) {
+      if (!date) {
+        return res.status(400).json({
+          success: false,
+          message: "date parameter is required for recurring slots",
+        });
+      }
+      checkDate = new Date(date);
+      checkDate.setHours(0, 0, 0, 0);
+    } else {
+      checkDate = new Date(bookingSlot.date);
+      checkDate.setHours(0, 0, 0, 0);
     }
 
     // Validate that requested time is within slot's time window
@@ -138,9 +187,10 @@ export const getAvailableTablesForSlot = async (req, res) => {
     const allTables = await Table.find(tableFilter).sort({ tableNumber: 1 });
 
     // Get existing reservations for this date and overlapping time
-    const slotDate = new Date(bookingSlot.date);
-    const startOfDay = new Date(slotDate.setHours(0, 0, 0, 0));
-    const endOfDay = new Date(slotDate.setHours(23, 59, 59, 999));
+    const startOfDay = new Date(checkDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(checkDate);
+    endOfDay.setHours(23, 59, 59, 999);
 
     const existingReservations = await Reservation.find({
       vendorId: bookingSlot.vendorId,
@@ -167,6 +217,7 @@ export const getAvailableTablesForSlot = async (req, res) => {
       success: true,
       count: availableTables.length,
       data: availableTables,
+      checkedDate: toLocalDateStr(checkDate),
     });
   } catch (error) {
     console.error("Get available tables error:", error);
@@ -188,6 +239,7 @@ export const createPublicReservation = async (req, res) => {
       numberOfGuests,
       startTime,
       endTime,
+      reservationDate, // NEW: Customer selects date for recurring slots
     } = req.body;
 
     // Validation
@@ -218,25 +270,115 @@ export const createPublicReservation = async (req, res) => {
       });
     }
 
-    // Check if slot is full
-    if (
-      bookingSlot.maxBookings !== null &&
-      bookingSlot.totalBookings >= bookingSlot.maxBookings
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "This booking slot is full",
+    // Determine the reservation date
+    let actualReservationDate;
+
+    if (bookingSlot.isRecurring) {
+      // For recurring slots, customer must provide date
+      if (!reservationDate) {
+        return res.status(400).json({
+          success: false,
+          message: "reservationDate is required for recurring slots",
+        });
+      }
+
+      actualReservationDate = new Date(reservationDate);
+      actualReservationDate.setHours(0, 0, 0, 0);
+
+      // Validate date is within slot range (compare as local date strings to avoid UTC offset issues)
+      if (
+        toLocalDateStr(actualReservationDate) <
+        toLocalDateStr(new Date(bookingSlot.dateRange.start))
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Selected date is before slot start date",
+        });
+      }
+
+      if (
+        bookingSlot.dateRange.end &&
+        toLocalDateStr(actualReservationDate) >
+          toLocalDateStr(new Date(bookingSlot.dateRange.end))
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Selected date is after slot end date",
+        });
+      }
+
+      // Validate date matches recurrence pattern
+      const { generateOccurrences } =
+        await import("../utils/recurrenceUtils.js");
+      const testEnd = new Date(actualReservationDate);
+      testEnd.setDate(testEnd.getDate() + 1);
+
+      const validDates = generateOccurrences(
+        bookingSlot.recurrenceRule,
+        actualReservationDate,
+        testEnd,
+      );
+
+      const isValidDate = validDates.some((d) => {
+        const vd = new Date(d);
+        vd.setHours(0, 0, 0, 0);
+        return vd.getTime() === actualReservationDate.getTime();
       });
+
+      if (!isValidDate) {
+        return res.status(400).json({
+          success: false,
+          message: "Selected date does not match recurrence pattern",
+        });
+      }
+
+      // Check if date is excluded
+      const dateStr = toLocalDateStr(actualReservationDate);
+      const isExcluded = bookingSlot.excludedDates.some(
+        (excluded) => toLocalDateStr(excluded) === dateStr,
+      );
+
+      if (isExcluded) {
+        return res.status(400).json({
+          success: false,
+          message: "Selected date is not available (blackout date)",
+        });
+      }
+    } else {
+      // For single-date slots, use slot's date
+      actualReservationDate = new Date(bookingSlot.date);
+      actualReservationDate.setHours(0, 0, 0, 0);
     }
 
     // Check if date is in the past
-    const slotDate = new Date(bookingSlot.date);
-    slotDate.setHours(23, 59, 59, 999);
-    if (slotDate < new Date()) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (actualReservationDate < today) {
       return res.status(410).json({
         success: false,
-        message: "This booking slot has expired",
+        message: "Cannot book for past dates",
       });
+    }
+
+    // Check max bookings for this specific date (for recurring slots)
+    if (bookingSlot.maxBookings !== null) {
+      const startOfDay = new Date(actualReservationDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(actualReservationDate);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      const bookingsCount = await Reservation.countDocuments({
+        bookingSlotId: bookingSlot._id,
+        reservationDate: { $gte: startOfDay, $lte: endOfDay },
+        status: { $in: ["pending", "confirmed"] },
+      });
+
+      if (bookingsCount >= bookingSlot.maxBookings) {
+        return res.status(400).json({
+          success: false,
+          message: "This date is fully booked",
+        });
+      }
     }
 
     // Validate time is within slot window
@@ -270,10 +412,10 @@ export const createPublicReservation = async (req, res) => {
       });
     }
 
-    // Check table availability
-    const startOfDay = new Date(bookingSlot.date);
+    // Check table availability for the selected date
+    const startOfDay = new Date(actualReservationDate);
     startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(bookingSlot.date);
+    const endOfDay = new Date(actualReservationDate);
     endOfDay.setHours(23, 59, 59, 999);
 
     const conflictingReservation = await Reservation.findOne({
@@ -303,16 +445,18 @@ export const createPublicReservation = async (req, res) => {
       customerName,
       customerPhone,
       numberOfGuests,
-      reservationDate: bookingSlot.date,
+      reservationDate: actualReservationDate,
       startTime,
       endTime,
       status: "pending",
       createdBy: "customer",
     });
 
-    // Increment booking slot counter
-    bookingSlot.totalBookings += 1;
-    await bookingSlot.save();
+    // Increment booking counter (only for legacy single-date slots)
+    if (!bookingSlot.isRecurring && bookingSlot.totalBookings !== undefined) {
+      bookingSlot.totalBookings += 1;
+      await bookingSlot.save();
+    }
 
     // Populate details
     const populatedReservation = await Reservation.findById(reservation._id)
