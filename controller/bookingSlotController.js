@@ -1068,3 +1068,57 @@ export const validateSlotDate = async (req, res) => {
     });
   }
 };
+
+// Get today's reservations for the vendor (Sri Lanka time, UTC+5:30)
+export const getTodayReservations = async (req, res) => {
+  try {
+    const vendorId = req.vendor.id;
+    const { status } = req.query;
+
+    // Sri Lanka is UTC+5:30. To compute "today" in LKT we shift the current UTC
+    // time forward by the offset, then extract the calendar date, then build UTC
+    // range boundaries that correspond to LKT midnight → LKT midnight+24h.
+    const LKT_OFFSET_MS = 5.5 * 60 * 60 * 1000; // 5 hours 30 minutes
+
+    const nowUTC = Date.now();
+    const nowLKT = new Date(nowUTC + LKT_OFFSET_MS);
+
+    // Midnight of today in LKT, expressed as a UTC Date
+    const todayStartUTC = new Date(
+      Date.UTC(
+        nowLKT.getUTCFullYear(),
+        nowLKT.getUTCMonth(),
+        nowLKT.getUTCDate(),
+      ) - LKT_OFFSET_MS,
+    );
+    const todayEndUTC = new Date(todayStartUTC.getTime() + 24 * 60 * 60 * 1000);
+
+    const query = {
+      vendorId,
+      reservationDate: { $gte: todayStartUTC, $lt: todayEndUTC },
+    };
+
+    if (status) {
+      query.status = status;
+    }
+
+    const reservations = await Reservation.find(query)
+      .populate("tableId", "tableNumber seatingCapacity")
+      .populate("sectionId", "sectionName")
+      .populate("bookingSlotId", "slotName")
+      .sort({ startTime: 1 });
+
+    res.status(200).json({
+      success: true,
+      count: reservations.length,
+      date: todayStartUTC.toISOString().split("T")[0],
+      data: reservations,
+    });
+  } catch (error) {
+    console.error("Get today reservations error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};

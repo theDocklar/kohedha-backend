@@ -14,6 +14,7 @@ import {
   cancelReservation,
   getAvailableDatesForSlot,
   validateSlotDate,
+  getTodayReservations,
 } from "../controller/bookingSlotController.js";
 
 const router = express.Router();
@@ -25,6 +26,9 @@ router.delete("/recurring/:groupId", protect, deleteRecurringSeries);
 // Public availability endpoints (no auth required)
 router.get("/public/:token/available-dates", getAvailableDatesForSlot);
 router.get("/public/:token/validate-date", validateSlotDate);
+
+// Today's reservations across all slots
+router.get("/reservations/today", protect, getTodayReservations);
 
 // Normal slot routes
 router.post("/create", protect, createBookingSlot);
