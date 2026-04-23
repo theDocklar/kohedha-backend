@@ -1,4 +1,29 @@
 import Event from "../models/eventModel.js";
+import cloudinary from "../config/cloudinary.js";
+
+// Helper: extract cloudinary public_id from URL
+function extractPublicId(url) {
+  try {
+    // URL format: https://res.cloudinary.com/{cloud}/image/upload/v{ver}/{public_id}.{ext}
+    const match = url.match(/\/upload\/(?:v\d+\/)?(.+?)\.[a-z]+$/i);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+// Helper: delete an array of image objects from cloudinary
+async function deleteCloudinaryImages(images) {
+  for (const img of images) {
+    if (!img.url) continue;
+    try {
+      const publicId = extractPublicId(img.url);
+      if (publicId) await cloudinary.uploader.destroy(publicId);
+    } catch (err) {
+      console.error("Failed to delete cloudinary image:", err);
+    }
+  }
+}
 
 // Create a new event
 export const createEvent = async (req, res) => {
@@ -35,6 +60,32 @@ export const createEvent = async (req, res) => {
       });
     }
 
+    // Build images array: cloudinary-uploaded file + any pre-existing URL objects from body
+    const uploadedImages = req.file ? [{ url: req.file.path }] : [];
+    let bodyImages = [];
+    if (images) {
+      try {
+        bodyImages = typeof images === "string" ? JSON.parse(images) : images;
+      } catch {}
+    }
+    const allImages = [...bodyImages, ...uploadedImages];
+
+    // Parse contactPerson if sent as JSON string (multipart form)
+    let parsedContactPerson = contactPerson || {};
+    if (typeof contactPerson === "string") {
+      try {
+        parsedContactPerson = JSON.parse(contactPerson);
+      } catch {}
+    }
+
+    // Parse tags if sent as JSON string
+    let parsedTags = tags || [];
+    if (typeof tags === "string" && tags.startsWith("[")) {
+      try {
+        parsedTags = JSON.parse(tags);
+      } catch {}
+    }
+
     // Create event
     const event = await Event.create({
       vendorId: req.vendor.id,
@@ -47,11 +98,11 @@ export const createEvent = async (req, res) => {
       maxCapacity,
       location,
       ticketPrice: ticketPrice || 0,
-      images: images || [],
+      images: allImages,
       isFree: ticketPrice > 0 ? false : true,
       isPublished: isPublished !== undefined ? isPublished : true,
-      tags: tags || [],
-      contactPerson: contactPerson || {},
+      tags: parsedTags,
+      contactPerson: parsedContactPerson,
       status: "upcoming",
     });
 
@@ -196,12 +247,49 @@ export const updateEvent = async (req, res) => {
       event.ticketPrice = ticketPrice;
       event.isFree = ticketPrice > 0 ? false : true;
     }
-    if (images) event.images = images;
+
+    // Handle image updates
+    // existingImages: JSON array of image objects the client wants to keep
+    let existingImagesToKeep = event.images; // default: keep all current
+    if (req.body.existingImages !== undefined) {
+      try {
+        existingImagesToKeep =
+          typeof req.body.existingImages === "string"
+            ? JSON.parse(req.body.existingImages)
+            : req.body.existingImages;
+      } catch {}
+    }
+
+    // Delete removed images from cloudinary
+    const keepUrls = new Set(existingImagesToKeep.map((img) => img.url));
+    const imagesToRemove = event.images.filter((img) => !keepUrls.has(img.url));
+    await deleteCloudinaryImages(imagesToRemove);
+
+    // Upload new image (single)
+    const newUploadedImages = req.file ? [{ url: req.file.path }] : [];
+    event.images = [...existingImagesToKeep, ...newUploadedImages];
+
     if (isFree !== undefined) event.isFree = isFree;
     if (isPublished !== undefined) event.isPublished = isPublished;
     if (status) event.status = status;
-    if (tags) event.tags = tags;
-    if (contactPerson) event.contactPerson = contactPerson;
+    if (tags) {
+      let parsedTags = tags;
+      if (typeof tags === "string" && tags.startsWith("[")) {
+        try {
+          parsedTags = JSON.parse(tags);
+        } catch {}
+      }
+      event.tags = parsedTags;
+    }
+    if (contactPerson) {
+      let parsedContactPerson = contactPerson;
+      if (typeof contactPerson === "string") {
+        try {
+          parsedContactPerson = JSON.parse(contactPerson);
+        } catch {}
+      }
+      event.contactPerson = parsedContactPerson;
+    }
 
     const updatedEvent = await event.save();
 
@@ -237,6 +325,9 @@ export const deleteEvent = async (req, res) => {
         message: "Not authorized to delete this event",
       });
     }
+
+    // Delete event images from cloudinary
+    await deleteCloudinaryImages(event.images || []);
 
     await Event.findByIdAndDelete(req.params.id);
 
