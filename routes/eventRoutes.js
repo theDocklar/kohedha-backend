@@ -1,5 +1,5 @@
 import express from "express";
-import { 
+import {
   createEvent,
   getVendorEvents,
   getEventById,
@@ -7,15 +7,16 @@ import {
   deleteEvent,
 } from "../controller/eventController.js";
 import { protect } from "../middleware/auth.js";
+import { uploadEventImages } from "../middleware/upload.js";
 
 const router = express.Router();
 
 router.use(protect);
 
-router.post("/new", createEvent);
+router.post("/new", uploadEventImages.single("images"), createEvent);
 router.get("/", getVendorEvents);
 router.get("/:id", getEventById);
-router.put("/:id", updateEvent);
+router.put("/:id", uploadEventImages.single("images"), updateEvent);
 router.delete("/:id", deleteEvent);
 
 export default router;

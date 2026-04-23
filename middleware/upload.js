@@ -47,6 +47,21 @@ const menuImageStorage = new CloudinaryStorage({
   },
 });
 
+// Cloudinary storage (event images)
+const eventImageStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: "koheda/event-images",
+    allowed_formats: ["jpg", "jpeg", "png", "webp"],
+    transformation: [{ width: 1400, height: 900, crop: "limit" }],
+    public_id: (_req, file) => {
+      const short = Math.random().toString(36).slice(2, 8);
+      const timestamp = Date.now();
+      return `ev-${timestamp}-${short}`;
+    },
+  },
+});
+
 const imageFilter = (req, file, cb) => {
   const allowedMimeTypes = ["image/jpeg", "image/png", "image/webp"];
   const allowedExtensions = [".jpg", ".jpeg", ".png", ".webp"];
@@ -66,6 +81,12 @@ export const uploadMenuImage = multer({
   storage: menuImageStorage,
   fileFilter: imageFilter,
   limits: { fileSize: 5 * 1024 * 1024, files: 1 }, // 5 MB
+});
+
+export const uploadEventImages = multer({
+  storage: eventImageStorage,
+  fileFilter: imageFilter,
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 }, // 5 MB, max 1 file
 });
 
 export default upload;
