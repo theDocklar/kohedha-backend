@@ -89,4 +89,25 @@ export const uploadEventImages = multer({
   limits: { fileSize: 5 * 1024 * 1024, files: 1 }, // 5 MB, max 1 file
 });
 
+// Cloudinary storage (deal images)
+const dealImageStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: "koheda/deal-images",
+    allowed_formats: ["jpg", "jpeg", "png", "webp"],
+    transformation: [{ width: 1400, height: 900, crop: "limit" }],
+    public_id: (_req, file) => {
+      const short = Math.random().toString(36).slice(2, 8);
+      const timestamp = Date.now();
+      return `deal-${timestamp}-${short}`;
+    },
+  },
+});
+
+export const uploadDealImage = multer({
+  storage: dealImageStorage,
+  fileFilter: imageFilter,
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 }, // 5 MB, max 1 file
+});
+
 export default upload;

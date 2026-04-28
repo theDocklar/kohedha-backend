@@ -68,12 +68,6 @@ const dealSchema = mongoose.Schema(
     mainImage: {
       url: {
         type: String,
-        required: [true, "Please provide a main image"],
-      },
-      alt: {
-        type: String,
-        required: [true, "Please provide alt text for main image"],
-        trim: true,
       },
     },
 
