@@ -1,4 +1,26 @@
 import Deal from "../models/dealModel.js";
+import cloudinary from "../config/cloudinary.js";
+
+// Helper: extract cloudinary public_id from URL
+function extractPublicId(url) {
+  try {
+    const match = url.match(/\/upload\/(?:v\d+\/)?(.+?)\.[a-z]+$/i);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+// Helper: delete a single image from cloudinary
+async function deleteCloudinaryImage(url) {
+  if (!url) return;
+  try {
+    const publicId = extractPublicId(url);
+    if (publicId) await cloudinary.uploader.destroy(publicId);
+  } catch (err) {
+    console.error("Failed to delete cloudinary image:", err);
+  }
+}
 
 // Create a new deal
 export const createDeal = async (req, res) => {
@@ -14,18 +36,33 @@ export const createDeal = async (req, res) => {
       contactInfo,
       status,
       priority,
-      tags,
+      tags: rawTags,
       isPublished,
     } = req.body;
 
+    let tags = rawTags;
+    if (typeof rawTags === "string") {
+      try {
+        tags = JSON.parse(rawTags);
+      } catch {
+        tags = rawTags ? [rawTags] : [];
+      }
+    }
+
     // Validation
-    if (!dealName || !description || !mainImage || !category) {
+    if (!dealName || !description || !category) {
       console.error("[Create Deal] Validation failed: Missing required fields");
       return res.status(400).json({
         success: false,
         message:
-          "Please fill in all required fields (dealName, description, mainImage, category)",
+          "Please fill in all required fields (dealName, description, category)",
       });
+    }
+
+    // Build mainImage: prefer uploaded file, fallback to body value
+    let resolvedMainImage = mainImage || null;
+    if (req.file) {
+      resolvedMainImage = { url: req.file.path };
     }
 
     // Create deal
@@ -35,7 +72,7 @@ export const createDeal = async (req, res) => {
       description,
       category,
       notes: notes || "",
-      mainImage,
+      mainImage: resolvedMainImage || {},
       images: images || [],
       socialLinks: socialLinks || {},
       contactInfo: contactInfo || {},
@@ -207,21 +244,46 @@ export const updateDeal = async (req, res) => {
       contactInfo,
       status,
       priority,
-      tags,
+      tags: rawTags,
       isPublished,
     } = req.body;
+
+    let tags = rawTags;
+    if (typeof rawTags === "string") {
+      try {
+        tags = JSON.parse(rawTags);
+      } catch {
+        tags = rawTags ? [rawTags] : [];
+      }
+    }
 
     if (dealName) deal.dealName = dealName;
     if (description) deal.description = description;
     if (category) deal.category = category;
-    if (notes) deal.notes = notes;
-    if (mainImage) deal.mainImage = mainImage;
-    if (images) deal.images = images;
+    if (notes !== undefined) deal.notes = notes;
     if (socialLinks) deal.socialLinks = { ...deal.socialLinks, ...socialLinks };
     if (contactInfo) deal.contactInfo = { ...deal.contactInfo, ...contactInfo };
     if (status) deal.status = status;
     if (priority !== undefined) deal.priority = priority;
     if (tags) deal.tags = tags;
+
+    // Handle image update
+    if (req.file) {
+      // Delete old image from cloudinary if it exists
+      await deleteCloudinaryImage(deal.mainImage && deal.mainImage.url);
+      deal.mainImage = { url: req.file.path };
+    } else if (mainImage !== undefined) {
+      // Allow updating mainImage object from body (e.g. updating alt text)
+      deal.mainImage = mainImage;
+    }
+
+    // Allow client to explicitly remove the image
+    if (req.body.removeImage === "true" || req.body.removeImage === true) {
+      await deleteCloudinaryImage(deal.mainImage && deal.mainImage.url);
+      deal.mainImage = {};
+    }
+
+    if (images !== undefined) deal.images = images;
 
     // Handle publishing
     if (isPublished !== undefined) {
@@ -271,6 +333,9 @@ export const deleteDeal = async (req, res) => {
         message: "Not authorized to delete this deal",
       });
     }
+
+    // Delete main image from cloudinary if it exists
+    await deleteCloudinaryImage(deal.mainImage && deal.mainImage.url);
 
     await Deal.findByIdAndDelete(req.params.id);
 

@@ -8,17 +8,18 @@ import {
   getDealsByCategory,
 } from "../controller/dealController.js";
 import { protect } from "../middleware/auth.js";
+import { uploadDealImage } from "../middleware/upload.js";
 
 const router = express.Router();
 
 router.use(protect);
 
 // CRUD routes
-router.post("/new", createDeal);
+router.post("/new", uploadDealImage.single("image"), createDeal);
 router.get("/", getAllDeals);
 router.get("/category/:category", getDealsByCategory);
 router.get("/:id", getDealById);
-router.put("/:id", updateDeal);
+router.put("/:id", uploadDealImage.single("image"), updateDeal);
 router.delete("/:id", deleteDeal);
 
 export default router;
