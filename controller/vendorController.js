@@ -102,7 +102,9 @@ export const compeleteRegistration = async (req, res) => {
 
     // Step 3: Location & Additional Info
     if (currentStep === 3) {
-      let updatedLocation = vendor.location ? { ...vendor.location } : undefined;
+      let updatedLocation = vendor.location
+        ? { ...vendor.location }
+        : undefined;
 
       if (location) {
         updatedLocation = updatedLocation || {};
@@ -338,7 +340,9 @@ export const completeVendorProfile = async (req, res) => {
 // Get venue details
 export const getVenueDetails = async (req, res) => {
   try {
-    const vendor = await Vendor.findById(req.vendor.id).select("-password").lean();
+    const vendor = await Vendor.findById(req.vendor.id)
+      .select("-password")
+      .lean();
 
     if (!vendor) {
       return res.status(404).json({
@@ -349,13 +353,19 @@ export const getVenueDetails = async (req, res) => {
 
     // Transform location to include latitude and longitude from coordinates
     const location = vendor.location || {};
-    
+
     // Convert coordinates to latitude/longitude if they exist
     if (location.coordinates) {
-      if (location.coordinates.lat !== undefined && location.coordinates.lat !== null) {
+      if (
+        location.coordinates.lat !== undefined &&
+        location.coordinates.lat !== null
+      ) {
         location.latitude = location.coordinates.lat.toString();
       }
-      if (location.coordinates.lng !== undefined && location.coordinates.lng !== null) {
+      if (
+        location.coordinates.lng !== undefined &&
+        location.coordinates.lng !== null
+      ) {
         location.longitude = location.coordinates.lng.toString();
       }
     }
