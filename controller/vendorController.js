@@ -102,21 +102,40 @@ export const compeleteRegistration = async (req, res) => {
 
     // Step 3: Location & Additional Info
     if (currentStep === 3) {
-      if (!location || !location.city || !location.streetAddress) {
-        return res.status(400).json({
-          success: false,
-          message: "Street address and city are required",
-        });
+      let updatedLocation = vendor.location ? { ...vendor.location } : undefined;
+
+      if (location) {
+        updatedLocation = updatedLocation || {};
+
+        if (location.businessName) {
+          updatedLocation.businessName = location.businessName;
+        }
+        if (location.streetAddress) {
+          updatedLocation.streetAddress = location.streetAddress;
+        }
+        if (location.city) {
+          updatedLocation.city = location.city;
+        }
+        if (location.district) {
+          updatedLocation.district = location.district;
+        }
+        if (location.postalCode) {
+          updatedLocation.postalCode = location.postalCode;
+        }
+        if (location.country) {
+          updatedLocation.country = location.country;
+        }
+        if (location.coordinates) {
+          updatedLocation.coordinates = {
+            ...updatedLocation.coordinates,
+            ...location.coordinates,
+          };
+        }
       }
 
-      vendor.location = {
-        businessName: location.businessName || vendor.location?.businessName,
-        streetAddress: location.streetAddress,
-        city: location.city,
-        district: location.district || vendor.location?.district,
-        postalCode: location.postalCode || vendor.location?.postalCode,
-        country: location.country || "Sri Lanka",
-      };
+      if (updatedLocation) {
+        vendor.location = updatedLocation;
+      }
       vendor.website = website || vendor.website;
       vendor.description = description || vendor.description;
       vendor.registrationStep = 3;
@@ -238,10 +257,10 @@ export const completeVendorProfile = async (req, res) => {
       description,
     } = req.body;
 
-    if (!companyName || !vendorMobile || !location) {
+    if (!companyName || !vendorMobile) {
       return res.status(400).json({
         success: false,
-        message: "Company name, vendor mobile, & location are required",
+        message: "Company name and vendor mobile are required",
       });
     }
 
@@ -262,14 +281,34 @@ export const completeVendorProfile = async (req, res) => {
     vendor.website = website || vendor.website;
     vendor.description = description || vendor.description;
     if (location) {
-      vendor.location = {
-        businessName: location.businessName || vendor.location?.businessName,
-        streetAddress: location.streetAddress || vendor.location?.streetAddress,
-        city: location.city || vendor.location?.city,
-        district: location.district || vendor.location?.district,
-        postalCode: location.postalCode || vendor.location?.postalCode,
-        country: location.country || vendor.location?.country || "Sri Lanka",
-      };
+      const updatedLocation = vendor.location ? { ...vendor.location } : {};
+
+      if (location.businessName) {
+        updatedLocation.businessName = location.businessName;
+      }
+      if (location.streetAddress) {
+        updatedLocation.streetAddress = location.streetAddress;
+      }
+      if (location.city) {
+        updatedLocation.city = location.city;
+      }
+      if (location.district) {
+        updatedLocation.district = location.district;
+      }
+      if (location.postalCode) {
+        updatedLocation.postalCode = location.postalCode;
+      }
+      if (location.country) {
+        updatedLocation.country = location.country;
+      }
+      if (location.coordinates) {
+        updatedLocation.coordinates = {
+          ...updatedLocation.coordinates,
+          ...location.coordinates,
+        };
+      }
+
+      vendor.location = updatedLocation;
     }
 
     // Mark profile as complete
@@ -299,7 +338,7 @@ export const completeVendorProfile = async (req, res) => {
 // Get venue details
 export const getVenueDetails = async (req, res) => {
   try {
-    const vendor = await Vendor.findById(req.vendor.id).select("-password");
+    const vendor = await Vendor.findById(req.vendor.id).select("-password").lean();
 
     if (!vendor) {
       return res.status(404).json({
@@ -307,6 +346,23 @@ export const getVenueDetails = async (req, res) => {
         message: "Vendor not found",
       });
     }
+
+    // Transform location to include latitude and longitude from coordinates
+    const location = vendor.location || {};
+    
+    // Convert coordinates to latitude/longitude if they exist
+    if (location.coordinates) {
+      if (location.coordinates.lat !== undefined && location.coordinates.lat !== null) {
+        location.latitude = location.coordinates.lat.toString();
+      }
+      if (location.coordinates.lng !== undefined && location.coordinates.lng !== null) {
+        location.longitude = location.coordinates.lng.toString();
+      }
+    }
+
+    // Ensure we always return latitude and longitude fields, even if empty
+    if (!location.latitude) location.latitude = "";
+    if (!location.longitude) location.longitude = "";
 
     res.status(200).json({
       success: true,
@@ -318,7 +374,7 @@ export const getVenueDetails = async (req, res) => {
         businessCategory: vendor.businessCategory,
         website: vendor.website,
         description: vendor.description,
-        location: vendor.location || {},
+        location,
       },
     });
   } catch (error) {
@@ -351,14 +407,6 @@ export const updateVenueDetails = async (req, res) => {
       });
     }
 
-    // Validate required location fields if location is being updated
-    if (location && (!location.streetAddress || !location.city)) {
-      return res.status(400).json({
-        success: false,
-        message: "Street address and city are required",
-      });
-    }
-
     // Update business details
     if (companyName) vendor.companyName = companyName;
     if (businessRegistrationNo)
@@ -370,14 +418,45 @@ export const updateVenueDetails = async (req, res) => {
 
     // Update location details
     if (location) {
-      vendor.location = {
-        businessName: location.businessName || vendor.location?.businessName,
-        streetAddress: location.streetAddress,
-        city: location.city,
-        district: location.district || vendor.location?.district,
-        postalCode: location.postalCode || vendor.location?.postalCode,
-        country: location.country || "Sri Lanka",
-      };
+      const updatedLocation = vendor.location ? { ...vendor.location } : {};
+
+      if (location.businessName) {
+        updatedLocation.businessName = location.businessName;
+      }
+      if (location.streetAddress) {
+        updatedLocation.streetAddress = location.streetAddress;
+      }
+      if (location.city) {
+        updatedLocation.city = location.city;
+      }
+      if (location.district) {
+        updatedLocation.district = location.district;
+      }
+      if (location.postalCode) {
+        updatedLocation.postalCode = location.postalCode;
+      }
+      if (location.country) {
+        updatedLocation.country = location.country;
+      }
+      if (location.coordinates) {
+        updatedLocation.coordinates = {
+          ...updatedLocation.coordinates,
+          ...location.coordinates,
+        };
+      }
+
+      // Handle latitude and longitude from venue details form
+      if (location.latitude || location.longitude) {
+        updatedLocation.coordinates = updatedLocation.coordinates || {};
+        if (location.latitude) {
+          updatedLocation.coordinates.lat = parseFloat(location.latitude);
+        }
+        if (location.longitude) {
+          updatedLocation.coordinates.lng = parseFloat(location.longitude);
+        }
+      }
+
+      vendor.location = updatedLocation;
     }
 
     await vendor.save();
