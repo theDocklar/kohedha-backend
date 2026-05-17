@@ -95,6 +95,15 @@ const vendorSchema = mongoose.Schema(
         default: "Sri Lanka",
         trim: true,
       },
+
+      coordinates: {
+        lat: {
+          type: Number,
+        },
+        lng: {
+          type: Number,
+        },
+      },
     },
 
     businessCategory: {
