@@ -1,5 +1,6 @@
 import Event from "../models/eventModel.js";
 import Deal from "../models/dealModel.js";
+import Vendor from "../models/vendorModel.js";
 
 // GET /api/mobile/events
 // Returns all published, upcoming events across all vendors
@@ -118,6 +119,27 @@ export const getMobileDeals = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message || "Error fetching deals",
+    });
+  }
+};
+
+// GET /api/mobile/venues
+// Returns all vendors with a completed profile
+export const getMobileVenues = async (req, res) => {
+  try {
+    const venues = await Vendor.find({ isProfileComplete: true }).select(
+      "_id companyName location businessCategory description profilePicture vendorMobile"
+    );
+
+    res.status(200).json({
+      success: true,
+      data: venues,
+    });
+  } catch (error) {
+    console.error("[Mobile] Error fetching venues:", error.message);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error fetching venues",
     });
   }
 };

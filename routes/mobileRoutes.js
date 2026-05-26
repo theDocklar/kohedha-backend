@@ -5,6 +5,7 @@ import {
   getMobileEventById,
   getMobileDeals,
   getMobileDealById,
+  getMobileVenues,
 } from "../controller/mobileController.js";
 
 const router = express.Router();
@@ -19,5 +20,8 @@ router.get("/events/:id", getMobileEventById);
 // Deals
 router.get("/deals", getMobileDeals);
 router.get("/deals/:id", getMobileDealById);
+
+// Venues
+router.get("/venues", getMobileVenues);
 
 export default router;
