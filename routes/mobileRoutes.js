@@ -6,6 +6,8 @@ import {
   getMobileDeals,
   getMobileDealById,
   getMobileVenues,
+  saveUserProfile,
+  updateUserProfile,
 } from "../controller/mobileController.js";
 
 const router = express.Router();
@@ -23,5 +25,9 @@ router.get("/deals/:id", getMobileDealById);
 
 // Venues
 router.get("/venues", getMobileVenues);
+
+// User profile
+router.post("/user/profile", saveUserProfile);
+router.put("/user/profile", updateUserProfile);
 
 export default router;

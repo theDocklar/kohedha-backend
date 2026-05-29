@@ -1,6 +1,7 @@
 import Event from "../models/eventModel.js";
 import Deal from "../models/dealModel.js";
 import Vendor from "../models/vendorModel.js";
+import MobileUser from "../models/mobileUserModel.js";
 
 // GET /api/mobile/events
 // Returns all published, upcoming events across all vendors
@@ -169,6 +170,102 @@ export const getMobileDealById = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message || "Error fetching deal",
+    });
+  }
+};
+
+// POST /api/mobile/user/profile
+// Creates a user profile for a Firebase-authenticated user.
+// If a profile already exists for this UID it is returned as-is (idempotent).
+export const saveUserProfile = async (req, res) => {
+  try {
+    const { uid, email: tokenEmail } = req.user; // from firebaseAuth middleware
+    const { fullName, email, vibes } = req.body;
+
+    if (!fullName) {
+      return res.status(400).json({
+        success: false,
+        message: "fullName is required",
+      });
+    }
+
+    const resolvedEmail = email || tokenEmail;
+    if (!resolvedEmail) {
+      return res.status(400).json({
+        success: false,
+        message: "email is required",
+      });
+    }
+
+    // Return existing profile if one already exists for this UID
+    const existing = await MobileUser.findOne({ firebaseUid: uid });
+    if (existing) {
+      return res.status(200).json({
+        success: true,
+        message: "Profile already exists",
+        data: existing,
+      });
+    }
+
+    const user = await MobileUser.create({
+      firebaseUid: uid,
+      fullName: fullName.trim(),
+      email: resolvedEmail,
+      vibes: Array.isArray(vibes) ? vibes : [],
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Profile created successfully",
+      data: user,
+    });
+  } catch (error) {
+    console.error("[Mobile] Error saving user profile:", error.message);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error saving user profile",
+    });
+  }
+};
+
+// PUT /api/mobile/user/profile
+// Updates fullName, email, and/or vibes for the authenticated user.
+export const updateUserProfile = async (req, res) => {
+  try {
+    const { uid } = req.user;
+    const { fullName, email, vibes } = req.body;
+
+    if (!fullName && !email && !Array.isArray(vibes)) {
+      return res.status(400).json({
+        success: false,
+        message: "Provide at least one field to update: fullName, email, vibes",
+      });
+    }
+
+    const user = await MobileUser.findOne({ firebaseUid: uid });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User profile not found. Please create a profile first.",
+      });
+    }
+
+    if (fullName) user.fullName = fullName.trim();
+    if (email) user.email = email;
+    if (Array.isArray(vibes)) user.vibes = vibes;
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      data: user,
+    });
+  } catch (error) {
+    console.error("[Mobile] Error updating user profile:", error.message);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error updating user profile",
     });
   }
 };
