@@ -228,6 +228,48 @@ export const saveUserProfile = async (req, res) => {
   }
 };
 
+// GET /api/mobile/user/by-email?email=user@example.com
+// Returns a mobile user profile by email address.
+export const getMobileUserByEmail = async (req, res) => {
+  try {
+    const { email } = req.query;
+
+    if (!email || typeof email !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "email query parameter is required",
+      });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a valid email",
+      });
+    }
+
+    const user = await MobileUser.findOne({ email: normalizedEmail });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: user,
+    });
+  } catch (error) {
+    console.error("[Mobile] Error fetching user by email:", error.message);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error fetching user",
+    });
+  }
+};
+
 // PUT /api/mobile/user/profile
 // Updates fullName, email, and/or vibes for the authenticated user.
 export const updateUserProfile = async (req, res) => {
