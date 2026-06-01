@@ -128,13 +128,27 @@ export const getMobileDeals = async (req, res) => {
 // Returns all vendors with a completed profile
 export const getMobileVenues = async (req, res) => {
   try {
-    const venues = await Vendor.find({ isProfileComplete: true }).select(
-      "_id companyName location businessCategory description profilePicture vendorMobile"
-    );
+    const { page = 1, limit = 20 } = req.query;
+
+    const filter = { isProfileComplete: true };
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const total = await Vendor.countDocuments(filter);
+    const venues = await Vendor.find(filter)
+      .select(
+        "_id companyName location businessCategory description profilePicture vendorMobile"
+      )
+      .skip(skip)
+      .limit(parseInt(limit));
 
     res.status(200).json({
       success: true,
       data: venues,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit)),
+      },
     });
   } catch (error) {
     console.error("[Mobile] Error fetching venues:", error.message);
