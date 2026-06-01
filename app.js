@@ -21,6 +21,7 @@ import customerBookingRoutes from "./routes/customerBookingRoutes.js";
 import eventRoutes from "./routes/eventRoutes.js";
 import dealRoutes from "./routes/dealRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
+import mobileRoutes from "./routes/mobileRoutes.js";
 
 const app = express();
 const port = process.env.PORT || 5002;
@@ -57,5 +58,6 @@ app.use("/api/public/booking", customerBookingRoutes);
 app.use("/api/vendor/events", eventRoutes);
 app.use("/api/vendor/deals", dealRoutes);
 app.use("/api/vendor/dashboard", dashboardRoutes);
+app.use("/api/mobile", mobileRoutes);
 
 app.listen(port, () => console.log(`Server running on port ${port}`));

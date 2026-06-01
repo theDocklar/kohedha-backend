@@ -123,6 +123,14 @@ const dealSchema = mongoose.Schema(
       },
     ],
 
+    startDate: {
+      type: Date,
+    },
+
+    endDate: {
+      type: Date,
+    },
+
     publishedAt: {
       type: Date,
     },
@@ -130,7 +138,7 @@ const dealSchema = mongoose.Schema(
     isPublished: {
       type: Boolean,
       default: false,
-    },
+    }, 
   },
   { timestamps: true },
 );

@@ -38,6 +38,8 @@ export const createDeal = async (req, res) => {
       priority,
       tags: rawTags,
       isPublished,
+      startDate,
+      endDate,
     } = req.body;
 
     let tags = rawTags;
@@ -81,6 +83,8 @@ export const createDeal = async (req, res) => {
       tags: tags || [],
       isPublished: isPublished || false,
       publishedAt: isPublished ? new Date() : null,
+      startDate: startDate ? new Date(startDate) : null,
+      endDate: endDate ? new Date(endDate) : null,
     });
 
     console.log(
@@ -246,6 +250,8 @@ export const updateDeal = async (req, res) => {
       priority,
       tags: rawTags,
       isPublished,
+      startDate,
+      endDate,
     } = req.body;
 
     let tags = rawTags;
@@ -266,6 +272,10 @@ export const updateDeal = async (req, res) => {
     if (status) deal.status = status;
     if (priority !== undefined) deal.priority = priority;
     if (tags) deal.tags = tags;
+    if (startDate !== undefined)
+      deal.startDate = startDate ? new Date(startDate) : null;
+    if (endDate !== undefined)
+      deal.endDate = endDate ? new Date(endDate) : null;
 
     // Handle image update
     if (req.file) {
