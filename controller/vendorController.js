@@ -1,6 +1,7 @@
 import Vendor from "../models/vendorModel.js";
 import bcrypt from "bcrypt";
 import { validatePassword } from "../utils/validation.js";
+import { validateCoordinates } from "../utils/coordinates.js";
 import { sendTokenResponse, generateToken } from "../utils/jwtToken.js";
 
 // Vendor Registration
@@ -59,7 +60,32 @@ export const registerVendor = async (req, res) => {
   }
 };
 
-// Controller for progressive profile completion
+/**
+ * PUT /api/vendor/profile/complete
+ *
+ * Progresses a vendor through the multi-step registration flow.
+ * Requires a valid JWT (authenticate middleware).
+ *
+ * Step 2 body:
+ *   { currentStep: 2, companyName, vendorMobile, businessCategory, businessRegistrationNo? }
+ *
+ * Step 3 body:
+ *   {
+ *     currentStep: 3,
+ *     location: {
+ *       coordinates: { lat: number, lng: number },  // required — set via map picker
+ *       streetAddress?: string,
+ *       city?: string,
+ *       district?: string,
+ *       postalCode?: string,
+ *       country?: string,
+ *     },
+ *     website?: string,
+ *     description?: string,
+ *   }
+ *
+ * On success returns { success: true, message, data: { _id, email, companyName, isProfileComplete } }.
+ */
 export const compeleteRegistration = async (req, res) => {
   try {
     const {
@@ -102,6 +128,15 @@ export const compeleteRegistration = async (req, res) => {
 
     // Step 3: Location & Additional Info
     if (currentStep === 3) {
+      const coords = location?.coordinates;
+      const coordValidation = validateCoordinates(coords?.lat, coords?.lng);
+      if (!coordValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          message: coordValidation.message,
+        });
+      }
+
       let updatedLocation = vendor.location
         ? { ...vendor.location }
         : undefined;
