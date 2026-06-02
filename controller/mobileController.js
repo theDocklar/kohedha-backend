@@ -1,5 +1,7 @@
+import mongoose from "mongoose";
 import Event from "../models/eventModel.js";
 import Deal from "../models/dealModel.js";
+import Menu from "../models/menuModel.js";
 import Vendor from "../models/vendorModel.js";
 import MobileUser from "../models/mobileUserModel.js";
 
@@ -144,6 +146,144 @@ export const getMobileDeals = async (req, res) => {
   }
 };
 
+// GET /api/mobile/:vendorId/deals
+// Returns published, active deals for a specific vendor
+export const getMobileDealsByVendor = async (req, res) => {
+  try {
+    const { vendorId } = req.params;
+
+    if (!mongoose.isValidObjectId(vendorId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid vendor ID",
+      });
+    }
+
+    const vendor = await Vendor.findOne({
+      _id: vendorId,
+      isProfileComplete: true,
+    }).select("_id");
+
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        message: "Vendor not found",
+      });
+    }
+
+    const { category, sortBy, page = 1, limit = 20 } = req.query;
+
+    const filter = {
+      vendorId,
+      isPublished: true,
+      status: "active",
+    };
+
+    if (category) {
+      filter.category = category;
+    }
+
+    let sort = { priority: 1, createdAt: -1 };
+
+    if (sortBy === "newest") {
+      sort = { publishedAt: -1 };
+    } else if (sortBy === "rating") {
+      sort = { rating: -1 };
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const total = await Deal.countDocuments(filter);
+    const deals = await Deal.find(filter)
+      .populate({ path: "vendorId", select: "location.coordinates" })
+      .sort(sort)
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    res.status(200).json({
+      success: true,
+      data: deals.map(withVendorLocation),
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("[Mobile] Error fetching vendor deals:", error.message);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error fetching vendor deals",
+    });
+  }
+};
+
+// GET /api/mobile/:vendorId/menu
+// Returns available menu items for a specific vendor
+export const getMobileMenuByVendor = async (req, res) => {
+  try {
+    const { vendorId } = req.params;
+
+    if (!mongoose.isValidObjectId(vendorId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid vendor ID",
+      });
+    }
+
+    const vendor = await Vendor.findOne({
+      _id: vendorId,
+      isProfileComplete: true,
+    }).select("_id");
+
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        message: "Vendor not found",
+      });
+    }
+
+    const { category, sortBy, page = 1, limit = 20 } = req.query;
+    const filter = { vendorId, is_available: true };
+
+    if (category) {
+      filter.category = category;
+    }
+
+    let sort = { category: 1, name: 1 };
+
+    if (sortBy === "newest") {
+      sort = { createdAt: -1 };
+    } else if (sortBy === "oldest") {
+      sort = { createdAt: 1 };
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const total = await Menu.countDocuments(filter);
+    const menuItems = await Menu.find(filter)
+      .sort(sort)
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    res.status(200).json({
+      success: true,
+      data: menuItems,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("[Mobile] Error fetching vendor menu:", error.message);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error fetching vendor menu",
+    });
+  }
+};
+
 // GET /api/mobile/venues
 // Returns all vendors with a completed profile
 export const getMobileVenues = async (req, res) => {
@@ -155,7 +295,7 @@ export const getMobileVenues = async (req, res) => {
     const total = await Vendor.countDocuments(filter);
     const venues = await Vendor.find(filter)
       .select(
-        "_id companyName location businessCategory description profilePicture vendorMobile"
+        "_id companyName location businessCategory description profilePicture vendorMobile",
       )
       .skip(skip)
       .limit(parseInt(limit));

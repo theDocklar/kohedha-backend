@@ -5,6 +5,8 @@ import {
   getMobileEventById,
   getMobileDeals,
   getMobileDealById,
+  getMobileDealsByVendor,
+  getMobileMenuByVendor,
   getMobileVenues,
   saveUserProfile,
   updateUserProfile,
@@ -23,6 +25,10 @@ router.get("/events/:id", getMobileEventById);
 // Deals
 router.get("/deals", getMobileDeals);
 router.get("/deals/:id", getMobileDealById);
+
+// Vendor-specific 
+router.get("/:vendorId/deals", getMobileDealsByVendor);
+router.get("/:vendorId/menu", getMobileMenuByVendor);
 
 // Venues
 router.get("/venues", getMobileVenues);
