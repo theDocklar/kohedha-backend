@@ -3,6 +3,24 @@ import Deal from "../models/dealModel.js";
 import Vendor from "../models/vendorModel.js";
 import MobileUser from "../models/mobileUserModel.js";
 
+function withVendorLocation(doc) {
+  const item = doc.toObject ? doc.toObject() : { ...doc };
+  const vendor = item.vendorId;
+  const vendorId =
+    vendor && typeof vendor === "object" && vendor._id
+      ? vendor._id.toString()
+      : String(item.vendorId ?? "");
+  const coords = vendor?.location?.coordinates;
+  return {
+    ...item,
+    vendorId,
+    vendorLocation:
+      coords?.lat != null && coords?.lng != null
+        ? { lat: coords.lat, lng: coords.lng }
+        : null,
+  };
+}
+
 // GET /api/mobile/events
 // Returns all published, upcoming events across all vendors
 export const getMobileEvents = async (req, res) => {
@@ -26,13 +44,14 @@ export const getMobileEvents = async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const total = await Event.countDocuments(filter);
     const events = await Event.find(filter)
+      .populate({ path: "vendorId", select: "location.coordinates" })
       .sort(sort)
       .skip(skip)
       .limit(parseInt(limit));
 
     res.status(200).json({
       success: true,
-      data: events,
+      data: events.map(withVendorLocation),
       pagination: {
         total,
         page: parseInt(page),
@@ -56,7 +75,7 @@ export const getMobileEventById = async (req, res) => {
     const event = await Event.findOne({
       _id: req.params.id,
       isPublished: true,
-    });
+    }).populate({ path: "vendorId", select: "location.coordinates" });
 
     if (!event) {
       return res.status(404).json({
@@ -67,7 +86,7 @@ export const getMobileEventById = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: event,
+      data: withVendorLocation(event),
     });
   } catch (error) {
     console.error("[Mobile] Error fetching event by ID:", error.message);
@@ -101,13 +120,14 @@ export const getMobileDeals = async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const total = await Deal.countDocuments(filter);
     const deals = await Deal.find(filter)
+      .populate({ path: "vendorId", select: "location.coordinates" })
       .sort(sort)
       .skip(skip)
       .limit(parseInt(limit));
 
     res.status(200).json({
       success: true,
-      data: deals,
+      data: deals.map(withVendorLocation),
       pagination: {
         total,
         page: parseInt(page),
@@ -166,7 +186,7 @@ export const getMobileDealById = async (req, res) => {
     const deal = await Deal.findOne({
       _id: req.params.id,
       isPublished: true,
-    });
+    }).populate({ path: "vendorId", select: "location.coordinates" });
 
     if (!deal) {
       return res.status(404).json({
@@ -177,7 +197,7 @@ export const getMobileDealById = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: deal,
+      data: withVendorLocation(deal),
     });
   } catch (error) {
     console.error("[Mobile] Error fetching deal by ID:", error.message);
