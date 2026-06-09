@@ -11,6 +11,7 @@ import {
   saveUserProfile,
   updateUserProfile,
   getMobileUserByEmail,
+  voteOnMenuItem,
 } from "../controller/mobileController.js";
 
 const router = express.Router();
@@ -26,12 +27,15 @@ router.get("/events/:id", getMobileEventById);
 router.get("/deals", getMobileDeals);
 router.get("/deals/:id", getMobileDealById);
 
-// Vendor-specific 
+// Menu item voting
+router.post("/menu/:menuItemId/vote", voteOnMenuItem);
+
+// Venues (must be before /:vendorId/* to avoid being swallowed by the param route)
+router.get("/venues", getMobileVenues);
+
+// Vendor-specific
 router.get("/:vendorId/deals", getMobileDealsByVendor);
 router.get("/:vendorId/menu", getMobileMenuByVendor);
-
-// Venues
-router.get("/venues", getMobileVenues);
 
 // User profile
 router.get("/user", getMobileUserByEmail);

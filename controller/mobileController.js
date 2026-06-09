@@ -256,6 +256,8 @@ export const getMobileMenuByVendor = async (req, res) => {
       sort = { createdAt: -1 };
     } else if (sortBy === "oldest") {
       sort = { createdAt: 1 };
+    } else if (sortBy === "popular") {
+      sort = { upvotes: -1, name: 1 };
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -440,6 +442,79 @@ export const getMobileUserByEmail = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message || "Error fetching user",
+    });
+  }
+};
+
+// POST /api/mobile/menu/:menuItemId/vote
+// Upvote or downvote a menu item. Calling with the same vote toggles it off.
+// Calling with the opposite vote switches it. Requires Firebase auth.
+export const voteOnMenuItem = async (req, res) => {
+  try {
+    const { menuItemId } = req.params;
+    const { vote } = req.body;
+    const userId = req.user.uid;
+
+    if (!mongoose.isValidObjectId(menuItemId)) {
+      return res.status(400).json({ success: false, message: "Invalid menu item ID" });
+    }
+
+    if (!vote || !["up", "down"].includes(vote)) {
+      return res.status(400).json({
+        success: false,
+        message: 'vote must be "up" or "down"',
+      });
+    }
+
+    const menuItem = await Menu.findById(menuItemId);
+    if (!menuItem) {
+      return res.status(404).json({ success: false, message: "Menu item not found" });
+    }
+
+    const existingVoterIndex = menuItem.voters.findIndex((v) => v.userId === userId);
+    const existingVote = existingVoterIndex !== -1 ? menuItem.voters[existingVoterIndex].vote : null;
+
+    if (existingVote === vote) {
+      // Same vote → toggle off (remove)
+      menuItem.voters.splice(existingVoterIndex, 1);
+      if (vote === "up") menuItem.upvotes = Math.max(0, menuItem.upvotes - 1);
+      else menuItem.downvotes = Math.max(0, menuItem.downvotes - 1);
+    } else if (existingVote !== null) {
+      // Opposite vote → switch
+      menuItem.voters[existingVoterIndex].vote = vote;
+      if (vote === "up") {
+        menuItem.upvotes += 1;
+        menuItem.downvotes = Math.max(0, menuItem.downvotes - 1);
+      } else {
+        menuItem.downvotes += 1;
+        menuItem.upvotes = Math.max(0, menuItem.upvotes - 1);
+      }
+    } else {
+      // No existing vote → add
+      menuItem.voters.push({ userId, vote });
+      if (vote === "up") menuItem.upvotes += 1;
+      else menuItem.downvotes += 1;
+    }
+
+    await menuItem.save();
+
+    const userVote = menuItem.voters.find((v) => v.userId === userId)?.vote ?? null;
+
+    res.status(200).json({
+      success: true,
+      message: userVote ? `${userVote}vote recorded` : "Vote removed",
+      data: {
+        menuItemId,
+        upvotes: menuItem.upvotes,
+        downvotes: menuItem.downvotes,
+        userVote,
+      },
+    });
+  } catch (error) {
+    console.error("[Mobile] Error voting on menu item:", error.message);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error recording vote",
     });
   }
 };
