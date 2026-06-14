@@ -4,6 +4,7 @@ import Deal from "../models/dealModel.js";
 import Menu from "../models/menuModel.js";
 import Vendor from "../models/vendorModel.js";
 import MobileUser from "../models/mobileUserModel.js";
+import BookingSlot from "../models/bookingSlotModel.js";
 
 function withVendorLocation(doc) {
   const item = doc.toObject ? doc.toObject() : { ...doc };
@@ -20,6 +21,30 @@ function withVendorLocation(doc) {
       coords?.lat != null && coords?.lng != null
         ? { lat: coords.lat, lng: coords.lng }
         : null,
+  };
+}
+
+function withBookingSlotInfo(doc) {
+  const item = doc.toObject ? doc.toObject() : { ...doc };
+  const vendor = item.vendorId;
+  const vendorId =
+    vendor && typeof vendor === "object" && vendor._id
+      ? vendor._id.toString()
+      : String(item.vendorId ?? "");
+  const coords = vendor?.location?.coordinates;
+  return {
+    ...item,
+    vendorId,
+    vendorName: vendor?.companyName || vendor?.location?.businessName || null,
+    vendorPhone: vendor?.vendorMobile || null,
+    vendorCity: vendor?.location?.city || null,
+    vendorAddress: vendor?.location?.streetAddress || null,
+    vendorLocation:
+      coords?.lat != null && coords?.lng != null
+        ? { lat: coords.lat, lng: coords.lng }
+        : null,
+    publicLink:
+      typeof doc.getPublicLink === "function" ? doc.getPublicLink() : null,
   };
 }
 
@@ -515,6 +540,134 @@ export const voteOnMenuItem = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message || "Error recording vote",
+    });
+  }
+};
+
+// GET /api/mobile/booking-slots
+// Returns all active booking slots across all vendors, including vendor lat/lng.
+export const getMobileBookingSlots = async (req, res) => {
+  try {
+    const { slotType, page = 1, limit = 20 } = req.query;
+
+    const filter = { isActive: true };
+    if (slotType) {
+      filter.slotType = slotType;
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const total = await BookingSlot.countDocuments(filter);
+    const slots = await BookingSlot.find(filter)
+      .populate({
+        path: "vendorId",
+        select:
+          "companyName vendorMobile location.businessName location.city location.streetAddress location.coordinates",
+      })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    res.status(200).json({
+      success: true,
+      data: slots.map(withBookingSlotInfo),
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("[Mobile] Error fetching booking slots:", error.message);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error fetching booking slots",
+    });
+  }
+};
+
+// GET /api/mobile/:vendorId/booking-slots
+// Returns active booking slots for a specific vendor, including vendor lat/lng.
+export const getMobileBookingSlotsByVendor = async (req, res) => {
+  try {
+    const { vendorId } = req.params;
+
+    if (!mongoose.isValidObjectId(vendorId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid vendor ID",
+      });
+    }
+
+    const vendor = await Vendor.findOne({
+      _id: vendorId,
+      isProfileComplete: true,
+    }).select(
+      "companyName vendorMobile location.businessName location.city location.streetAddress location.coordinates",
+    );
+
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        message: "Vendor not found",
+      });
+    }
+
+    const { slotType, page = 1, limit = 20 } = req.query;
+
+    const filter = { vendorId, isActive: true };
+    if (slotType) {
+      filter.slotType = slotType;
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const total = await BookingSlot.countDocuments(filter);
+    const slots = await BookingSlot.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const coords = vendor.location?.coordinates;
+    const vendorLocation =
+      coords?.lat != null && coords?.lng != null
+        ? { lat: coords.lat, lng: coords.lng }
+        : null;
+
+    const vendorInfo = {
+      vendorId: vendor._id.toString(),
+      vendorName:
+        vendor.companyName || vendor.location?.businessName || null,
+      vendorPhone: vendor.vendorMobile || null,
+      vendorCity: vendor.location?.city || null,
+      vendorAddress: vendor.location?.streetAddress || null,
+      vendorLocation,
+    };
+
+    res.status(200).json({
+      success: true,
+      data: slots.map((slot) => ({
+        ...(slot.toObject ? slot.toObject() : { ...slot }),
+        ...vendorInfo,
+        publicLink:
+          typeof slot.getPublicLink === "function"
+            ? slot.getPublicLink()
+            : null,
+      })),
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error(
+      "[Mobile] Error fetching vendor booking slots:",
+      error.message,
+    );
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error fetching vendor booking slots",
     });
   }
 };
