@@ -4,6 +4,7 @@ import Deal from "../models/dealModel.js";
 import Menu from "../models/menuModel.js";
 import Vendor from "../models/vendorModel.js";
 import MobileUser from "../models/mobileUserModel.js";
+import BookingSlot from "../models/bookingSlotModel.js";
 
 function withVendorLocation(doc) {
   const item = doc.toObject ? doc.toObject() : { ...doc };
@@ -20,6 +21,30 @@ function withVendorLocation(doc) {
       coords?.lat != null && coords?.lng != null
         ? { lat: coords.lat, lng: coords.lng }
         : null,
+  };
+}
+
+function withBookingSlotInfo(doc) {
+  const item = doc.toObject ? doc.toObject() : { ...doc };
+  const vendor = item.vendorId;
+  const vendorId =
+    vendor && typeof vendor === "object" && vendor._id
+      ? vendor._id.toString()
+      : String(item.vendorId ?? "");
+  const coords = vendor?.location?.coordinates;
+  return {
+    ...item,
+    vendorId,
+    vendorName: vendor?.companyName || vendor?.location?.businessName || null,
+    vendorPhone: vendor?.vendorMobile || null,
+    vendorCity: vendor?.location?.city || null,
+    vendorAddress: vendor?.location?.streetAddress || null,
+    vendorLocation:
+      coords?.lat != null && coords?.lng != null
+        ? { lat: coords.lat, lng: coords.lng }
+        : null,
+    publicLink:
+      typeof doc.getPublicLink === "function" ? doc.getPublicLink() : null,
   };
 }
 
@@ -256,6 +281,8 @@ export const getMobileMenuByVendor = async (req, res) => {
       sort = { createdAt: -1 };
     } else if (sortBy === "oldest") {
       sort = { createdAt: 1 };
+    } else if (sortBy === "popular") {
+      sort = { upvotes: -1, name: 1 };
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -440,6 +467,207 @@ export const getMobileUserByEmail = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message || "Error fetching user",
+    });
+  }
+};
+
+// POST /api/mobile/menu/:menuItemId/vote
+// Upvote or downvote a menu item. Calling with the same vote toggles it off.
+// Calling with the opposite vote switches it. Requires Firebase auth.
+export const voteOnMenuItem = async (req, res) => {
+  try {
+    const { menuItemId } = req.params;
+    const { vote } = req.body;
+    const userId = req.user.uid;
+
+    if (!mongoose.isValidObjectId(menuItemId)) {
+      return res.status(400).json({ success: false, message: "Invalid menu item ID" });
+    }
+
+    if (!vote || !["up", "down"].includes(vote)) {
+      return res.status(400).json({
+        success: false,
+        message: 'vote must be "up" or "down"',
+      });
+    }
+
+    const menuItem = await Menu.findById(menuItemId);
+    if (!menuItem) {
+      return res.status(404).json({ success: false, message: "Menu item not found" });
+    }
+
+    const existingVoterIndex = menuItem.voters.findIndex((v) => v.userId === userId);
+    const existingVote = existingVoterIndex !== -1 ? menuItem.voters[existingVoterIndex].vote : null;
+
+    if (existingVote === vote) {
+      // Same vote → toggle off (remove)
+      menuItem.voters.splice(existingVoterIndex, 1);
+      if (vote === "up") menuItem.upvotes = Math.max(0, menuItem.upvotes - 1);
+      else menuItem.downvotes = Math.max(0, menuItem.downvotes - 1);
+    } else if (existingVote !== null) {
+      // Opposite vote → switch
+      menuItem.voters[existingVoterIndex].vote = vote;
+      if (vote === "up") {
+        menuItem.upvotes += 1;
+        menuItem.downvotes = Math.max(0, menuItem.downvotes - 1);
+      } else {
+        menuItem.downvotes += 1;
+        menuItem.upvotes = Math.max(0, menuItem.upvotes - 1);
+      }
+    } else {
+      // No existing vote → add
+      menuItem.voters.push({ userId, vote });
+      if (vote === "up") menuItem.upvotes += 1;
+      else menuItem.downvotes += 1;
+    }
+
+    await menuItem.save();
+
+    const userVote = menuItem.voters.find((v) => v.userId === userId)?.vote ?? null;
+
+    res.status(200).json({
+      success: true,
+      message: userVote ? `${userVote}vote recorded` : "Vote removed",
+      data: {
+        menuItemId,
+        upvotes: menuItem.upvotes,
+        downvotes: menuItem.downvotes,
+        userVote,
+      },
+    });
+  } catch (error) {
+    console.error("[Mobile] Error voting on menu item:", error.message);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error recording vote",
+    });
+  }
+};
+
+// GET /api/mobile/booking-slots
+// Returns all active booking slots across all vendors, including vendor lat/lng.
+export const getMobileBookingSlots = async (req, res) => {
+  try {
+    const { slotType, page = 1, limit = 20 } = req.query;
+
+    const filter = { isActive: true };
+    if (slotType) {
+      filter.slotType = slotType;
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const total = await BookingSlot.countDocuments(filter);
+    const slots = await BookingSlot.find(filter)
+      .populate({
+        path: "vendorId",
+        select:
+          "companyName vendorMobile location.businessName location.city location.streetAddress location.coordinates",
+      })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    res.status(200).json({
+      success: true,
+      data: slots.map(withBookingSlotInfo),
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("[Mobile] Error fetching booking slots:", error.message);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error fetching booking slots",
+    });
+  }
+};
+
+// GET /api/mobile/:vendorId/booking-slots
+// Returns active booking slots for a specific vendor, including vendor lat/lng.
+export const getMobileBookingSlotsByVendor = async (req, res) => {
+  try {
+    const { vendorId } = req.params;
+
+    if (!mongoose.isValidObjectId(vendorId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid vendor ID",
+      });
+    }
+
+    const vendor = await Vendor.findOne({
+      _id: vendorId,
+      isProfileComplete: true,
+    }).select(
+      "companyName vendorMobile location.businessName location.city location.streetAddress location.coordinates",
+    );
+
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        message: "Vendor not found",
+      });
+    }
+
+    const { slotType, page = 1, limit = 20 } = req.query;
+
+    const filter = { vendorId, isActive: true };
+    if (slotType) {
+      filter.slotType = slotType;
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const total = await BookingSlot.countDocuments(filter);
+    const slots = await BookingSlot.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const coords = vendor.location?.coordinates;
+    const vendorLocation =
+      coords?.lat != null && coords?.lng != null
+        ? { lat: coords.lat, lng: coords.lng }
+        : null;
+
+    const vendorInfo = {
+      vendorId: vendor._id.toString(),
+      vendorName:
+        vendor.companyName || vendor.location?.businessName || null,
+      vendorPhone: vendor.vendorMobile || null,
+      vendorCity: vendor.location?.city || null,
+      vendorAddress: vendor.location?.streetAddress || null,
+      vendorLocation,
+    };
+
+    res.status(200).json({
+      success: true,
+      data: slots.map((slot) => ({
+        ...(slot.toObject ? slot.toObject() : { ...slot }),
+        ...vendorInfo,
+        publicLink:
+          typeof slot.getPublicLink === "function"
+            ? slot.getPublicLink()
+            : null,
+      })),
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error(
+      "[Mobile] Error fetching vendor booking slots:",
+      error.message,
+    );
+    res.status(500).json({
+      success: false,
+      message: error.message || "Error fetching vendor booking slots",
     });
   }
 };

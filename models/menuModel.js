@@ -40,6 +40,21 @@ const menuItemSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    upvotes: {
+      type: Number,
+      default: 0,
+    },
+    downvotes: {
+      type: Number,
+      default: 0,
+    },
+    voters: [
+      {
+        userId: { type: String, required: true },
+        vote: { type: String, enum: ["up", "down"], required: true },
+        _id: false,
+      },
+    ],
   },
   {
     timestamps: true,
@@ -49,6 +64,7 @@ const menuItemSchema = new mongoose.Schema(
 // Index for efficient queries
 menuItemSchema.index({ vendorId: 1, category: 1 });
 menuItemSchema.index({ vendorId: 1, is_available: 1 });
+menuItemSchema.index({ upvotes: -1 });
 
 const Menu = mongoose.model("Menu", menuItemSchema);
 export default Menu;

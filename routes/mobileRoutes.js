@@ -11,6 +11,9 @@ import {
   saveUserProfile,
   updateUserProfile,
   getMobileUserByEmail,
+  voteOnMenuItem,
+  getMobileBookingSlots,
+  getMobileBookingSlotsByVendor,
 } from "../controller/mobileController.js";
 
 const router = express.Router();
@@ -26,12 +29,19 @@ router.get("/events/:id", getMobileEventById);
 router.get("/deals", getMobileDeals);
 router.get("/deals/:id", getMobileDealById);
 
-// Vendor-specific 
+// Menu item voting
+router.post("/menu/:menuItemId/vote", voteOnMenuItem);
+
+// Venues (must be before /:vendorId/* to avoid being swallowed by the param route)
+router.get("/venues", getMobileVenues);
+
+// Booking slots (all vendors — must be before /:vendorId/* for same reason)
+router.get("/booking-slots", getMobileBookingSlots);
+
+// Vendor-specific
 router.get("/:vendorId/deals", getMobileDealsByVendor);
 router.get("/:vendorId/menu", getMobileMenuByVendor);
-
-// Venues
-router.get("/venues", getMobileVenues);
+router.get("/:vendorId/booking-slots", getMobileBookingSlotsByVendor);
 
 // User profile
 router.get("/user", getMobileUserByEmail);
