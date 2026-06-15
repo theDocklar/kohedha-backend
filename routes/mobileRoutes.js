@@ -14,6 +14,8 @@ import {
   voteOnMenuItem,
   getMobileBookingSlots,
   getMobileBookingSlotsByVendor,
+  getMobileAvailableDates,
+  getMobileAvailableTables,
 } from "../controller/mobileController.js";
 
 const router = express.Router();
@@ -37,6 +39,10 @@ router.get("/venues", getMobileVenues);
 
 // Booking slots (all vendors — must be before /:vendorId/* for same reason)
 router.get("/booking-slots", getMobileBookingSlots);
+
+// Per-slot booking routes (must be before /:vendorId/* for same reason)
+router.get("/booking-slots/:slotId/available-dates", getMobileAvailableDates);
+router.get("/booking-slots/:slotId/available-tables", getMobileAvailableTables);
 
 // Vendor-specific
 router.get("/:vendorId/deals", getMobileDealsByVendor);

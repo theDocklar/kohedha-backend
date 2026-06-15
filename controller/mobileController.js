@@ -5,6 +5,9 @@ import Menu from "../models/menuModel.js";
 import Vendor from "../models/vendorModel.js";
 import MobileUser from "../models/mobileUserModel.js";
 import BookingSlot from "../models/bookingSlotModel.js";
+import Table from "../models/tableModel.js";
+import Reservation from "../models/reservationModel.js";
+import { generateOccurrences } from "../utils/recurrenceUtils.js";
 
 function withVendorLocation(doc) {
   const item = doc.toObject ? doc.toObject() : { ...doc };
@@ -713,3 +716,227 @@ export const updateUserProfile = async (req, res) => {
     });
   }
 };
+
+// ─── Booking / Reservation ────────────────────────────────────────────────────
+
+// Helper: convert Date → "YYYY-MM-DD" in local time (mirrors customerBookingController)
+const toLocalDateStr = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+// GET /api/mobile/booking-slots/:slotId/available-dates
+// Returns available dates for a slot (especially useful for recurring slots).
+// Query params: lookAhead (number of days, default 90)
+export const getMobileAvailableDates = async (req, res) => {
+  try {
+    const { slotId } = req.params;
+    const { lookAhead } = req.query;
+
+    if (!mongoose.isValidObjectId(slotId)) {
+      return res.status(400).json({ success: false, message: "Invalid slot ID" });
+    }
+
+    const bookingSlot = await BookingSlot.findOne({ _id: slotId, isActive: true });
+    if (!bookingSlot) {
+      return res.status(404).json({ success: false, message: "Booking slot not found or inactive" });
+    }
+
+    // Non-recurring: return the single slot date
+    if (!bookingSlot.isRecurring) {
+      return res.status(200).json({
+        success: true,
+        isRecurring: false,
+        availableDates: [bookingSlot.date],
+      });
+    }
+
+    // Recurring: generate dates within the window
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const rangeStart =
+      toLocalDateStr(new Date(bookingSlot.dateRange.start)) > toLocalDateStr(today)
+        ? new Date(bookingSlot.dateRange.start)
+        : today;
+
+    const daysAhead = parseInt(lookAhead) || 90;
+    const defaultEnd = new Date(today);
+    defaultEnd.setDate(defaultEnd.getDate() + daysAhead);
+
+    let rangeEnd;
+    if (bookingSlot.dateRange.end) {
+      rangeEnd =
+        toLocalDateStr(new Date(bookingSlot.dateRange.end)) < toLocalDateStr(defaultEnd)
+          ? new Date(bookingSlot.dateRange.end)
+          : defaultEnd;
+    } else {
+      rangeEnd = defaultEnd;
+    }
+
+    let availableDates;
+    try {
+      const allDates = generateOccurrences(bookingSlot.recurrenceRule, rangeStart, rangeEnd);
+
+      const nonExcluded = allDates.filter((date) => {
+        const dateStr = toLocalDateStr(date);
+        return !bookingSlot.excludedDates.some(
+          (excluded) => toLocalDateStr(excluded) === dateStr,
+        );
+      });
+
+      if (bookingSlot.maxBookings !== null && nonExcluded.length > 0) {
+        const startBound = new Date(nonExcluded[0]);
+        startBound.setHours(0, 0, 0, 0);
+        const endBound = new Date(nonExcluded[nonExcluded.length - 1]);
+        endBound.setHours(23, 59, 59, 999);
+
+        const bookingCounts = await Reservation.aggregate([
+          {
+            $match: {
+              bookingSlotId: bookingSlot._id,
+              reservationDate: { $gte: startBound, $lte: endBound },
+              status: { $in: ["pending", "confirmed"] },
+            },
+          },
+          {
+            $group: {
+              _id: { $dateToString: { format: "%Y-%m-%d", date: "$reservationDate" } },
+              count: { $sum: 1 },
+            },
+          },
+        ]);
+
+        const fullyBooked = new Set(
+          bookingCounts
+            .filter((r) => r.count >= bookingSlot.maxBookings)
+            .map((r) => r._id),
+        );
+
+        availableDates = nonExcluded.filter((d) => !fullyBooked.has(toLocalDateStr(d)));
+      } else {
+        availableDates = nonExcluded;
+      }
+    } catch (err) {
+      return res.status(500).json({
+        success: false,
+        message: `Error generating dates: ${err.message}`,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      isRecurring: true,
+      dateRange: {
+        start: bookingSlot.dateRange.start,
+        end: bookingSlot.dateRange.end || "indefinite",
+      },
+      recurrenceRule: bookingSlot.recurrenceRule,
+      availableDates: availableDates.map((d) => toLocalDateStr(d)),
+      count: availableDates.length,
+    });
+  } catch (error) {
+    console.error("[Mobile] Error fetching available dates:", error.message);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+// GET /api/mobile/booking-slots/:slotId/available-tables
+// Returns tables that are free for the given time window.
+// Query params: startTime (HH:mm), endTime (HH:mm), numberOfGuests (optional), date (YYYY-MM-DD, required for recurring slots)
+export const getMobileAvailableTables = async (req, res) => {
+  try {
+    const { slotId } = req.params;
+    const { startTime, endTime, numberOfGuests, date } = req.query;
+
+    if (!mongoose.isValidObjectId(slotId)) {
+      return res.status(400).json({ success: false, message: "Invalid slot ID" });
+    }
+
+    if (!startTime || !endTime) {
+      return res.status(400).json({
+        success: false,
+        message: "startTime and endTime are required",
+      });
+    }
+
+    const bookingSlot = await BookingSlot.findOne({ _id: slotId, isActive: true });
+    if (!bookingSlot) {
+      return res.status(404).json({ success: false, message: "Booking slot not found or inactive" });
+    }
+
+    // Determine the date to check
+    let checkDate;
+    if (bookingSlot.isRecurring) {
+      if (!date) {
+        return res.status(400).json({
+          success: false,
+          message: "date parameter is required for recurring slots",
+        });
+      }
+      checkDate = new Date(date);
+      checkDate.setHours(0, 0, 0, 0);
+    } else {
+      checkDate = new Date(bookingSlot.date);
+      checkDate.setHours(0, 0, 0, 0);
+    }
+
+    // Requested time must be within the slot's time window
+    if (startTime < bookingSlot.startTime || endTime > bookingSlot.endTime) {
+      return res.status(400).json({
+        success: false,
+        message: `Time must be within ${bookingSlot.startTime} - ${bookingSlot.endTime}`,
+      });
+    }
+
+    // Build table filter
+    const tableFilter = {
+      vendorId: bookingSlot.vendorId,
+      sectionId: bookingSlot.sectionId,
+      isActive: true,
+    };
+    if (numberOfGuests) {
+      tableFilter.seatingCapacity = { $gte: parseInt(numberOfGuests) };
+    }
+
+    const allTables = await Table.find(tableFilter).sort({ tableNumber: 1 });
+
+    // Find overlapping reservations on the same day
+    const startOfDay = new Date(checkDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(checkDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const existingReservations = await Reservation.find({
+      vendorId: bookingSlot.vendorId,
+      reservationDate: { $gte: startOfDay, $lte: endOfDay },
+      status: { $in: ["pending", "confirmed"] },
+      $or: [
+        { startTime: { $lte: startTime }, endTime: { $gt: startTime } },
+        { startTime: { $lt: endTime }, endTime: { $gte: endTime } },
+        { startTime: { $gte: startTime }, endTime: { $lte: endTime } },
+      ],
+    });
+
+    const bookedTableIds = new Set(
+      existingReservations.map((r) => r.tableId.toString()),
+    );
+
+    const availableTables = allTables.filter(
+      (table) => !bookedTableIds.has(table._id.toString()),
+    );
+
+    res.status(200).json({
+      success: true,
+      count: availableTables.length,
+      data: availableTables,
+      checkedDate: toLocalDateStr(checkDate),
+    });
+  } catch (error) {
+    console.error("[Mobile] Error fetching available tables:", error.message);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
